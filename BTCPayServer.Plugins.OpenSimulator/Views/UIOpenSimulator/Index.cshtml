@@ -1,0 +1,877 @@
+@using System.Text.Json
+@using BTCPayServer.Client
+@using BTCPayServer.Security
+@using BTCPayServer.Abstractions.Extensions
+@using BTCPayServer.Plugins.OpenSimulator.Views
+@using Microsoft.AspNetCore.Mvc.TagHelpers
+@inject ContentSecurityPolicies Csp
+@model BTCPayServer.Plugins.OpenSimulator.Models.OpenSimulatorPageViewModel
+@{
+    ViewData.SetActivePage(OpenSimulatorNavPages.Index, "OpenSimulator Plugin");
+    var nonce = NBitcoin.RandomUtils.GetUInt256().ToString().Substring(0, 32);
+    Csp.Add("script-src", $"'nonce-{nonce}'");  
+}
+
+@section PageHeadContent {
+<link href="~/Resources/css/osp.css" rel="stylesheet" type="text/css" asp-append-version="true">
+}
+
+@section PageFootContent {
+    <script src="~/Resources/js/opensimulator.js" asp-append-version="true"></script>
+}
+<img id="opensimLogo" src="~/Resources/img/opensimLogo.png" style="position: relative;top:-10px;width:64px" asp-append-version="true">&nbsp;<h2 style="display: inline;">@ViewData["Title"]</h2>&nbsp;&nbsp;<span class="ospVersion">v0.1.1</span>
+<div class="sticky-header mb-l">
+    <nav id="SectionNav">
+        <div class="nav">
+            <a permission="@Policies.CanModifyStoreSettings" id="SectionNav-@(nameof(OpenSimulatorNavPages.Index))" class="nav-link @ViewData.IsActivePage(OpenSimulatorNavPages.Index)" asp-controller="UIOpenSimulator" asp-action="Index" asp-route-storeId="@Model.StoreID">Authorizations Manager</a>
+            <a id="osScripts" href="" class="nav-link">LSL Scripts</a>
+            <a id="osDocumentation" href="" class="nav-link">Documentation</a>
+            <a id="osCredits" href="" class="nav-link">Credits</a>
+            <vc:ui-extension-point location="store-nav" model="@Model"/>
+        </div>
+    </nav>
+</div>
+
+<div id="SectionNav-Index-Page" class="osPage">
+    <form id="authorizationRequest" asp-controller="UIOpenSimulator" asp-action="AuthorizationsManager">
+        <input id="itemId" type="hidden" name="Id" value="">
+        <input type="hidden" name="StoreId" value="@Model.StoreID">
+        <input id="itemAvatarId" type="hidden" name="AvatarId" value="">
+        <input id="itemObjectId" type="hidden" name="ObjectId" value="">
+        <input id="itemTask" type="hidden" name="Task" value="">
+
+    <div class="badge badge-invalid tableTitle" style="width: 185px;text-align:left;cursor:auto;"><h6>Pending Authorizations</h6></div>
+    <table id="pendingAutorizations" class="table">
+        <thead>
+            <tr>
+            <th style="width: 180px;">Owner Name</th>
+            <th style="width: 180px;">Object Name</th>
+            <th>Location</th>
+            <th style="width: 195px;">Action</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <div class="badge badge-settled tableTitle" style="width: 185px;text-align:left;cursor:auto;"><h6>Authorized Objects</h6></div>
+    <table id="authorizedObjects" class="table">
+        <thead>
+            <tr>
+            <th style="width: 180px;">Owner Name</th>
+            <th style="width: 180px;">Object Name</th>
+            <th>Location</th>
+            <th style="width: 185px;">Action</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <div id="authorizationModal" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="authorizationModalTitle" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered" role="document" style="max-width: 550px;">
+        <div class="modal-content">
+            
+            <div class="modal-header">
+                <h5 class="modal-title" id="authorizationModalTitle">Authorizations Manager</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close">
+                <vc:icon symbol="close" />
+                </button>
+            </div>
+                    
+            <div id="authorizationModal-modal-body" class="modal-body"></div>
+                    
+            <div class="modal-footer">
+                <button id="authorizationModalBtn" type="button" class="btn" style="color: #fff;text-shadow: 0px 0px 3px #000;">Remove</button>
+                <button type="button" class="btn badge-settled cancelOrClose" data-bs-dismiss="modal" aria-label="Close">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+    <script type="text/javascript" nonce="@nonce">
+        var osModel = JSON.parse("@JsonSerializer.Serialize(Model.Data.OrderByDescending(t => t.Timestamp))".replace(/&quot;/g,"\"")); 
+        var StoreId = "@Model.StoreID";
+        var defaultPaymentMethod = "@Model.StoreDefaultPaymetMethod";
+        var defaultCurrency = "@Model.StoreDefaultCurrency";
+        var IP = "@Model.ServerIP";
+    </script>
+
+</form>
+</div>
+
+<div id="osScriptsPage" class="osPage" style="display: none;">
+    <ul id="scriptsNav">
+        <li id="tipJarScript" class="sNav-bg bg-yellow"><h6><i class="fa fa-heart"></i>Crypto Tip-Jar Script</h6></li>
+        <li id="vendorScript" class="sNav-bg"><h6><i class="fa fa-shopping-cart" ></i>Products Vendor Script</h6></li>
+        <li id="rentalBoxScript" class="sNav-bg"><h6><i class="fa fa-home" ></i>Rental Box Script</h6></li>
+    </ul>
+    <div id="tipJarScriptBox" class="row bg-green osScriptBox" style="padding: 10px 0;border-radius:10px;margin-bottom:20px;">
+        <div class="row">
+        <h5>Crypto Tip-Jar Script</h5>
+        <div class="alert alert-warning">
+        <span><b>User Level:</b> Parcel Owner or more.</span>
+        </div>
+        <span>The Tip-Jar script will turn any inWorld object placed in its content to a donation box allowing the object's owner to collect crypto donations and is the 3D equivalent of the Pay Button 
+            that do more or less the same:
+            <ul style="margin-left: 20px;">
+                <li>Invite the donator to select a currency or the default payment method...</li>
+                <li>Invite the donator to chose a pre-setted or type a custom amount of the selected currency...</li>
+                <li>Request the invoice from BTCPay server and invite your donator to open the invoice page...</li>
+                <li>Monitor the invoice status and the payment progress and confirmation...</li>
+                <li>Handle the invoice success or expiration and auto-reset the Tip-Jar.</li>
+                <li>Protect your BTCPay store by limiting the usage to one user and one invoice per user at time. 
+                    Also the script disable the Tip-Jar for the other avatars while used and in the invoice processing time.</li>
+            </ul>
+            The script is ready to use as is and use your store settings as default script parameters. You can also
+            set the optional invoice parameters and override the default payment method using the scripting helper at right.<br>
+            <br>
+            This video guide will show you how to create a simple scripted object to use as inWorld Tip-Jar:<br>
+            <a href="https://www.youtube.com/watch?v=NTb8PPp0qco&t=175&vq=hd720" target="_blank"><i class="fa fa-youtube-play" style="color: #f00;font-size:16px;margin-right:5px;"></i><b>Youtube basic video guide.</b></a><br>
+            <br>
+        </span>
+        </div>
+
+        
+        <div class="col-md-8">
+            <pre style="border: 1px solid #2e2e2e;"><code id="tipjarScriptCode" style="display:block;width: 540px;height:330px;">
+            </code></pre>
+            <button class="btn btn-outline-secondary pull-right bg-green" style="margin-right: 5px;" data-clipboard-target="#tipjarScriptCode">
+                <vc:icon symbol="copy"/>&nbsp;Copy Code
+            </button>
+        </div>
+        <div class="col-md-4">
+            <div class="form-group">
+                <label class="form-label" for="tjDefaultPaymentMethod">Payment Method&nbsp;&nbsp;<span class="labelWarning">(Supported Cryptos Only !)</span></label>
+                <input id="tjDefaultPaymentMethod" type="text" value="@Model.StoreDefaultPaymetMethod">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="notificationEmail">Notifications Email</label>
+                <input id="tjNotificationEmail" type="text">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="tjRedirectURL">Redirect URL</label>
+                <input id="tjRedirectURL" type="text">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="tjCheckoutQueryString">Checkout Query String</label>
+                <input id="tjCheckoutQueryString" type="text">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="chatNotification">Chat Notifications</label>
+                <select id="tjChatNotification" type="text">
+                    <option value="TRUE">Yes</option>
+                    <option value="FALSE">No</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div id="vendorScriptBox" class="row bg-green osScriptBox" style="padding: 10px 0;border-radius:10px;margin-bottom:20px;display:none;">
+        <div class="row">
+            <h5>Single Product Vendor Script</h5>
+            <div class="alert alert-warning">
+            <span><b>User Level:</b> Parcel Owner or more.</span><br>
+            <span><b>Requiere:</b> The object to sell and setting a currency, the sell price and your product description.</span>
+            </div>
+            <span>Vendor Infos:
+            <ul style="margin-left: 20px;">
+                <li>Inform the buyer about the item or service in sale in the chat and the purchase blue box...</li>
+                <li>Invite the buyer to click a [Buy] button if she/he accept the offer...</li>
+                <li>Request the invoice from BTCPay server and invite your buyer to open the invoice page...</li>
+                <li>Monitor the invoice status and the payment progress and confirmation...</li>
+                <li>Handle the invoice success or expiration and deliver the product after a successful payment.</li>
+                <li>Protect your BTCPay store by limiting the usage to one user and one invoice per user at time. 
+                    Also the script disable the vendor for the other avatars while used and in the invoice processing time.</li>
+            </ul>
+            This video guide will show you how to create a simple vendor to sell your products inWorld:<br>
+            <a href="https://www.youtube.com/watch?v=NTb8PPp0qco&t=530&vq=hd720" target="_blank"><i class="fa fa-youtube-play" style="color: #f00;font-size:16px;margin-right:5px;"></i><b>Youtube basic video guide.</b></a><br>
+            <br>
+            </span>
+        </div>
+        <div class="col-md-12">
+            <pre style="border: 1px solid #2e2e2e;"><code id="vendorScriptCode" class="lsl" style="display:block;width: 540px;height:250px;">
+            </code></pre>
+            
+        </div>
+        <div class="row">
+            <div class="col-md-4">
+                <div class="form-group">
+                    <label class="form-label" for="vDisplayCurrency">Display Currency</label>
+                    <select id="vDisplayCurrency" class="vDisplayCurrency" type="text" value="@Model.StoreDefaultCurrency"></select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="vNotificationEmail">Notifications Email</label>
+                    <input id="vNotificationEmail" type="text">
+                </div>
+                <div class="form-group">
+                <label class="form-label" for="vChatNotification">Chat Notifications</label>
+                <select id="vChatNotification" type="text">
+                    <option value="TRUE">Yes</option>
+                    <option value="FALSE">No</option>
+                </select>
+            </div>
+
+            </div>
+            <div class="col-md-4">
+                <div class="form-group">
+                    <label class="form-label" for="vItemPrice">Item Price In&nbsp;<span id="priceCurrency"></span>&nbsp;&nbsp;<span class="labelWarning">(Mandatory, Non-zero !)</span></label>
+                    <input id="vItemPrice" type="number" value="0.000000" step="0.000001" min="0.000001">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="vRedirectURL">Redirect URL</label>
+                    <input id="vRedirectURL" type="text">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="vShowHoverText">Show/Hide Hover Text</label>
+                    <select id="vShowHoverText" type="text">
+                        <option value="TRUE">Show</option>
+                        <option value="FALSE">Hide</option>
+                    </select>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-group">
+                    <label class="form-label" for="vDefaultPaymentMethod">Payment Method&nbsp;&nbsp;<span class="labelWarning">(Supported Cryptos Only !)</span></label>
+                    <input id="vDefaultPaymentMethod" type="text" value="@Model.StoreDefaultPaymetMethod">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="vCheckoutQueryString">Checkout Query String</label>
+                    <input id="vCheckoutQueryString" type="text">
+                </div>
+                <button class="btn btn-outline-secondary" style="position:relative;top:18px;width:100%;" data-clipboard-target="#vendorScriptCode">
+                <vc:icon symbol="copy"/>&nbsp;Copy Code
+                </button>
+
+            </div>
+        </div>
+    </div>
+
+    <div id="rentalBoxScriptBox" class="row bg-green osScriptBox" style="padding: 10px 0;border-radius:10px;margin-bottom:20px;display:none;">
+        <div class="row">
+            <h5>Crypto Rental Box Script</h5>
+            <div class="alert alert-warning">
+            <span style="color: #f00;"><b>User Level: Estate Owner Only !</b></span><br>
+            <span ><b>Important Note:</b>
+                <ul style="margin-bottom: 5px;padding-left:20px">
+                    <li>This rental box was made to rent parcels or a region sub-divisions and must be inside the region where the parcel is and outside the parcel to rent.</li>
+                    <li>The script use <a href="http://opensimulator.org/wiki/OsSetParcelDetails" target="_blank">osSetParcelDetails(...)</a> function to deliver and get back the parcel. The rental box will fail to get back the parcel if the script owner don't have the Estate Owner rights and permissions.</li>
+                    <li>The rental box do not return the previous user items after getting back the parcel. The auto-return must not be set to zero in the land options or you will need a manual intervention to clean the parcel.</li>
+                </ul>
+            </span>
+            <span><b>Requiere:</b> A parcel to rent, setting the currency and the rental price (per month) and 2 information notecards named "Rental Infos And Guide" and "Security Settings" in the rental box content.</span>
+            </div>
+            <span>Rental Box Infos:
+            <ul style="margin-left: 20px;">
+                <li>Inform the interested about the rental price per month and invite her/him to get the infos notecard...</li>
+                <li>Invite the interested to select the rental period and confirm the calculated price per period...</li>
+                <li>Request the invoice from BTCPay server and invite the buyer to open the invoice page...</li>
+                <li>Monitor the invoice status and the payment progress and confirmation...</li>
+                <li>Handle the invoice success or expiration and deliver the parcel after a successful payment.</li>
+                <li>Allow the parcel owner to extend her/his rental period (paid).</li>
+                <li>Allow the rental box owner to add an extra time (for free).</li>
+                <li>Get back the parcel at the end of the rental contract and make it available for the next renter.</li>
+                <li>Protect your BTCPay store by limiting the usage to one user and one invoice per user at time. 
+                    Also the script allow only the new renter (if the parcel is not rented) and the current parcel owner to create invoices.</li>
+            </ul>
+            This video guide will show you how to sub-divide a parcel and setup your rental box:<br>
+            <a href="https://www.youtube.com/watch?v=NTb8PPp0qco&t=1009&vq=hd720" target="_blank"><i class="fa fa-youtube-play" style="color: #f00;font-size:16px;margin-right:5px;"></i><b>Youtube basic video guide.</b></a><br>
+            <br>
+            </span>
+        </div>
+        <div class="col-md-12">
+            <pre style="border: 1px solid #2e2e2e;"><code id="rentalScriptCode" style="display:block;width: 540px;height:250px;">
+            </code></pre>
+            
+        </div>
+        <div class="row">
+            <div class="col-md-4">
+                <div class="form-group">
+                    <label class="form-label" for="rbParcelPosition">Parcel Position X,Y,Z:</label>
+                    <div id="rbParcelPosition">
+                        <input id="rbParcelPosition-x" type="number" style="width: 30%;margin-right:8px;" min="0.0" max="256.0" value="0.0">
+                        <input id="rbParcelPosition-y" type="number" style="width: 30%;margin-right:8px;" min="0.0" max="256.0" value="0.0">
+                        <input id="rbParcelPosition-z" type="number" style="width: 30%;color:#000;" value="21.0" disabled>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="rbDefaultPaymentMethod">Payment Method&nbsp;&nbsp;<span class="labelWarning">(Supported Cryptos Only !)</span></label>
+                    <input id="rbDefaultPaymentMethod" type="text" value="@Model.StoreDefaultPaymetMethod">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="rbCheckoutQueryString">Checkout Query String</label>
+                    <input id="rbCheckoutQueryString" type="text">
+                </div>
+
+            </div>
+            <div class="col-md-4">
+                <div class="form-group">
+                    <label class="form-label" for="rbDisplayCurrency">Display Currency</label>
+                    <select id="rbDisplayCurrency" class="rbDisplayCurrency" type="text" value="@Model.StoreDefaultCurrency"></select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="rbNotificationEmail">Notifications Email</label>
+                    <input id="rbNotificationEmail" type="text">
+                </div>
+                <div class="form-group">
+                <label class="form-label" for="rbChatNotification">Chat Notifications</label>
+                <select id="rbChatNotification" type="text">
+                    <option value="TRUE">Yes</option>
+                    <option value="FALSE">No</option>
+                </select>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-group">
+                    <label class="form-label" for="rbRentalPrice">Rental Price In&nbsp;<span id="rbPriceCurrency"></span>&nbsp;&nbsp;<span class="labelWarning">(Mandatory, Non-zero !)</span></label>
+                    <input id="rbRentalPrice" type="number" value="0.000000" step="0.000001" min="0.000001">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="rbRedirectURL">Redirect URL</label>
+                    <input id="rbRedirectURL" type="text">
+                </div>
+                
+                <button class="btn btn-outline-secondary" style="position:relative;top:20px;width:100%;" data-clipboard-target="#rentalScriptCode">
+                <vc:icon symbol="copy"/>&nbsp;Copy Code
+                </button>
+
+            </div>
+        </div>
+    </div>
+</div>
+<div id="osDocumentationPage" class="osPage" style="display: none;">
+    <h5>Opensimulator Plugin <span class="ospVersion">v0.1.1</span> Documentation</h5>
+    <hr>
+    <div class="panel-group">
+	    <div class="panel panel-default">
+		<div class="panel-heading">
+			<h6 class="panel-title">
+				<a data-bs-toggle="collapse" class="doc-title" href="#collapse1" aria-expanded="true">About Opensimulator Plugin:</a>
+			</h6>
+		</div>
+		<div id="collapse1" class="panel-collapse collapse show">
+			<div class="panel-body">
+				<p>
+				This plugin targets an audiance that already have a bit of experience not only with the technical part of Opensimulator but also with the HyperGrid economy and the ways to conduct an inWorld business... In majority standalones or grids operators, 3D hosting providers, contents creators and merchants, many educative services providers and all kind of non-profit entities and organizations.
+				</p>
+				<p>
+				If this is not your case, please, give to yourself a bit of time to learn about the <a href="http://opensimulator.org/wiki/Main_Page" target="_blank">Opensimulator software</a> and the 3D Web of Virtual Worlds known as the <a href="https://www.hypergridbusiness.com/category/metaverse/" target="_blank">HyperGrid</a> (HG). You can also setup a local sandbox to practice the multiple edition arts including the scripting or <a href="https://opensimworld.com/dir" target="_blank">explore the HyperGrid</a> by creating an account in an HG enabled grid like <a href="https://osgrid.org/" target="_blank">osGrid</a> where you can meet <a href="http://opensimulator.org/wiki/Office_hours">the Opensimulator DEV team</a> and practice using their public sandbox.
+				</p>
+				<span>That said...</span>
+				<p>
+				The Opensimulator plugin add to BTCPay a permissioned public interface similar to the Pay Button but adapted for the Opensimulator usages and allow:
+				<br>- Only 3D objects from a virtual world to interact with the plugin.
+				<br>- Only the 3D objects that the store owner authorize in the "Authorizations Manager" section to create invoices in her/his store.
+				<br>- Only a maximum of 3 pending authorizations per store.
+				</p>
+				<p>
+				The scripts samples in the "LSL Scripts" section was made to interact with this plugin and handle the inWorld part like the objects registration and the invoices requests. Also handles the delivery of the purchased product / service after a successful payment (paid and confirmed) and the exceptions / failures.
+				<br>The following video is a proof of work and concept that show the scripts and the Opensimulator plugin in action:
+				<br><a href="https://www.youtube.com/watch?v=NTb8PPp0qco&vq=hd720" target="_blank"><i class="fa fa-youtube-play" style="color: #f00;font-size:16px;margin-right:5px;"></i><b>Youtube video Introduction - Proof of work and concept.</b></a><br>
+				</p>
+			</div>
+		</div>
+	</div>
+	<div class="panel panel-default">
+		<div class="panel-heading">
+			<h6 class="panel-title">
+				<a data-bs-toggle="collapse" class="doc-title" href="#collapse2" aria-expanded="false">Setting Your Opensimulator Sandbox:</a>
+			</h6>
+		</div>
+		<div id="collapse2" class="panel-collapse collapse">
+			<div class="panel-body">
+				<div class="alert alert-info" style="margin-left: 0;"><i>This part of the docu was add for the BTCPay Dev team audit and may be removed in the release version because the Opensimulator users already know all this...</i></div>
+				<p>
+				The best way to try and audit the plugin and the included scripts is setting up your own virtual world where you can have the full permissions and the Estate Owner rights. To do this, you need for a minimalist DEV and testing environement to:
+				</p>
+				<ul>
+					<li>Install "mono" if you have a linux OS or Mac</li>
+					<li>Download and unpack the last version of <a href="http://opensimulator.org/wiki/Main_Page" target="_blank">the Opensimulator binaries</a>.</li>
+					<li>Download and install the last version of Firestorm Viewer for Opensimulator ( <a href="https://www.firestormviewer.org/windows-for-open-simulator/" target="_blank">Windows</a> - <a href="https://www.firestormviewer.org/linux-for-open-simulator/" target="_blank">Linux</a> - <a href="https://www.firestormviewer.org/mac-for-open-simulator/" target="_blank">Mac</a> ).</li>    
+				</ul>
+				<p>
+				<div class="alert alert-warning" style="margin-left: 0;"><i>NOTE: The following instructions are for testing only and is not the best way to setup Opensimulator!
+				<br>If you want to start a production virtual world, use the Diva distro version (Documentation is included as .txt files).
+        </i></div>
+				</p>
+				<p>
+				When done, navigate to ..\opensim-x.x.x.x\bin folder...<br>
+				If your BTCPay Server instance is not under a local or LAN IP (DEV mode), you have just to double click the OpenSim.exe in windows or open a console in the bin folder and type "mono OpenSim.exe" and hit Enter in linux.
+				</p>
+				<p>
+				If your BTCPay Server instance is under 127.0.0.1:14142 or a LAN IP, you have to add an exception to allow the LSL scripts to interact with the local/LAN IP and ports... To do, open the OpenSim.ini file in the bin folder, scroll down to the [Network] section and add the following line to the end of the section (Read the section comments for more infos). Change "127.0.0.1:14142"&nbsp;&nbsp;by&nbsp;&nbsp;"Your-LAN-IP:14142" if needed.
+				<pre><code>OutboundDisallowForUserScriptsExcept = 127.0.0.1:9000|127.0.0.1:14142</code></pre>
+				Save & close OpenSim.ini and double click the OpenSim.exe in windows or open a console in the bin folder and type "mono OpenSim.exe" and hit Enter in linux.
+				</p>
+				<p>
+				In the first Opensimulator startup, the OpenSim console will ask you to set an Estate and Region names, the first / last names and password of the admin user (important to set)... you can just hit enter for the optional settings and wait... the console will show you when your virtual world is ready to use. 
+				<br>At the very end, when you see (Region root #) in the console, type the following command and hit Enter:
+				<pre><code>terrain fill 21</code></pre>
+				</p>
+				<p>
+				Now is time to run Firestorm and login into your local sandbox. So double click the Firestorm icon to start it, expand the "Grid" list in the bottom bar and select "the lost continent of hippo". If you don't have it in the grids list, click CTRL+P to open the settings window and click "Opensim" at left. In the top of the tab type in the "Add new grid" field:
+				<pre><code>127.0.0.1:9000</code></pre>
+				click "Apply" & "Ok". Now you will see "the lost continent of hippo" in the grids list, select it and type the first / last names that you have set in the OpenSim console separated by a space, type your password and click the Log in button. If you did it right, you are now driving the default avatar in your region and ready to follow the video guides and try the sample scripts in the "LSL Scripts" section.
+				</p>
+				<p>
+				<div class="alert alert-info" style="margin-left: 0;"><i>NOTE: If you want to set the menus like the video guides, click CTRL+P to open the settings window and type "pie menu" in the top search field and click "User Interface" at left. Unselect "Use Pie Menu" and click "Ok".</i>
+                </div>       
+				</p>
+			</div>
+		</div>
+	</div>
+	<div class="panel panel-default">
+		<div class="panel-heading">
+			<h6 class="panel-title">
+				<a data-bs-toggle="collapse" class="doc-title" href="#collapse3" aria-expanded="false">Opensimulator Plugin And Scripts Workflow:</a>
+			</h6>
+		</div>
+		<div id="collapse3" class="panel-collapse collapse">
+			<div class="panel-body">
+			<p>
+        In Opensimulator, a <a href="https://wiki.secondlife.com/wiki/Getting_started_with_LSL" target="_blank">Linden Scripting Language (LSL) script</a> is the the source code of a .DLL that when compiled (on save), acts and works like a plugin attached to the object where the script is, extending it's capabilities 
+        to allow all kind of interactions, animations and control.
+    </p>
+    <p>
+        Between the LSL features, there is the <a href="https://wiki.secondlife.com/wiki/Category:LSL_HTTP" target="_blank">HTTP I/O</a> that we use to interconnect an inWorld object with a BTCPay instance and the main role of the Opensimulator plugin is to secure a bit 
+        this interactions with a simple permissions layer that only allow the invoices creation to the authorized 3D Objects / Avatars without exposing sensive data like the Greenfield API keys and protect your BTCPay instance / store in same time.
+         So, let's see how this works...
+    </p>
+    <p>
+        Because the Opensimulator plugin may have to handle 100s if not 1000s objects, is not a bad idea to divide the load by 2 public endpoints:
+		</p>
+		<span>One for the authorizations process (heavy load):</span>
+<pre><code>BTCPayServerURL/opensim/authorization</code></pre>
+        <span>And the other for the invoicing part (limited load in the script level):</span>
+<pre><code>BTCPayServerURL/opensim/invoices</code></pre>
+		<p>
+        The first thing that the script do on starting or when the object is clicked is asking the plugin about the object's status using the authorization() function with the "check" parameter.
+		</p>
+<pre><code><span class="commented">/* Global variables needed in this code:
+key avatar 
+*/</span>
+    <span class="commented">/* Request the object status when the script start...*/</span>
+    <a href="https://wiki.secondlife.com/wiki/State_entry" target="_blank" >state_entry</a>(){
+        <span style="color: #f00;">authorization("check")</span>;     
+    }
+    <span class="commented">/* Request the object status when the object is clicked by the object's owner...*/</span>
+    <a href="https://wiki.secondlife.com/wiki/Touch_start" target="_blank" >touch_start</a>(integer a){
+        if(<a href="https://wiki.secondlife.com/wiki/LlDetectedKey" target="_blank" >llDetectedKey(0)</a> == <a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner()</a>){
+            avatar = <a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner()</a>;
+            <span style="color: #f00;">authorization("check")</span>;
+        }
+        else{
+            <a href="https://wiki.secondlife.com/wiki/LlInstantMessage" target="_blank" >llInstantMessage</a>(<a href="https://wiki.secondlife.com/wiki/LlDetectedKey" target="_blank" >llDetectedKey(0)</a>,"You are not the owner of this item!");
+        }
+    }
+    </code></pre>
+		<p>
+         The plugin returns a Json that drive what the object will show, allow and do in the next steps. The plugin use the <a href="https://wiki.secondlife.com/wiki/LlHTTPRequest" target="_blank" >llHTTPRequest</a> headers to get/set the object's data and verify if is authorized or no. The authorization() function looks like this:
+		 </p>
+<pre><code><span class="commented">/* Global variables needed in this code:
+string BTCPayServerURL
+string storeID 
+key authorizationRequest_id 
+*/</span>
+
+<span style="color: #f00;">authorization(string action)</span>{
+    authorizationRequest_id = <a href="https://wiki.secondlife.com/wiki/LlHTTPRequest" target="_blank" >llHTTPRequest</a>(
+        BTCPayServerURL +"/opensim/authorization",
+        [
+            HTTP_METHOD,"POST",
+            HTTP_MIMETYPE,"application/x-www-form-urlencoded",
+            HTTP_BODY_MAXLENGTH,16384,
+            HTTP_VERIFY_CERT,FALSE, <span class="commented">/* FALSE for 127.0.0.1 else TRUE */</span>
+            HTTP_CUSTOM_HEADER,"x-opensim-store-id",storeID,
+            HTTP_CUSTOM_HEADER,"x-opensim-owner-home-url", <a href="http://opensimulator.org/wiki/OsGetAvatarHomeURI" target="_blank" >osGetAvatarHomeURI</a>(<a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner</a>()),
+            HTTP_CUSTOM_HEADER,"x-opensim-object-host-url", <a href="http://opensimulator.org/wiki/OsGetGridHomeURI" target="_blank" >osGetGridHomeURI</a>()
+        ],
+        "action=" + action );
+}</code></pre>
+	<p>
+    The result of the authorization() function is captured by <a href="https://wiki.secondlife.com/wiki/Http_response" target="_blank" >http_response</a> event handler.
+	</p>
+<pre><code><span class="commented">/* Global variables needed in this code:
+key avatar 
+key authorizationRequest_id
+*/</span>
+    
+    <span class="commented">/* Capture the plugin response to authorization("check") and perform actions...*/</span>
+    <a href="https://wiki.secondlife.com/wiki/Http_response" target="_blank" >http_response</a>(key id, integer status, list metaData, string Response){
+        if (status == 200 ){
+            if (id == authorizationRequest_id){
+                if(<a href="http://opensimulator.org/wiki/OsStringIndexOf" target="_blank" >osStringIndexOf</a>(Response,"ospError",0) == -1){ <span class="commented">/* if not an "ospError" return */</span>
+                    string authStatus = <a href="https://wiki.secondlife.com/wiki/LlJsonGetValue" target="_blank" >llJsonGetValue</a>(Response,["status"]);
+                    string authorized = <a href="https://wiki.secondlife.com/wiki/LlJsonGetValue" target="_blank" >llJsonGetValue</a>(Response,["authorized"]);
+                    if(authStatus == "registred" && authorized == "True"){
+                        <span class="commented">/* Here our object is authorized and you can start the invoicing process.
+                        In the included scripts, we switch to the authorized state that handles the invoicing. */</span>
+                        <a href="https://wiki.secondlife.com/wiki/State" target="_blank" >state</a> authorized;
+                    }
+                    else if(authStatus == "registred" && authorized == "False"){
+                        <span class="commented">/* Here the object is already registred but not authorized yet...*/</span>
+                        <a href="https://wiki.secondlife.com/wiki/LlSetText" target="_blank" >llSetText</a>("Out Of Service\nMissing Authorization",<1,0,0>,1.0);
+                        if(avatar == <a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner()</a>){
+                            <a href="https://wiki.secondlife.com/wiki/LlLoadURL" target="_blank" >llLoadURL</a>(<a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner()</a>,"\nThis object is registred and waiting your authorization.\n\nPlease open this page and authorize this object. When done, click this object again to enable it...", BTCPayServerURL + "/stores/" + storeID + "/plugins/opensim");
+                        }
+                    }
+                    else if(authStatus == "success" && authorized == "False"){
+                        <span class="commented">/* Here the object was successfully registred in the plugin side but not authorized yet...*/</span>
+                        <a href="https://wiki.secondlife.com/wiki/LlSetText" target="_blank" >llSetText</a>("Out Of Service\nMissing Authorization",<1,0,0>,1.0);
+                        if(avatar == <a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner()</a>){
+                            <a href="https://wiki.secondlife.com/wiki/LlLoadURL" target="_blank" >llLoadURL</a>(<a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner()</a>,"\nThis object is registred and waiting your authorization.\n\nPlease open this page and authorize this object. When done, click this object again to enable it...", BTCPayServerURL + "/stores/" + storeID + "/plugins/opensim");
+                        }
+                    }
+                    else if(authStatus == "unknown"){
+                        <span class="commented">/* Here the object is new and unknown to the plugin...*/</span>
+                        <a href="https://wiki.secondlife.com/wiki/LlSetText" target="_blank" >llSetText</a>("Out Of Service\nUnknown Object",<1,0,0>,1.0);
+                        if(avatar == <a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner()</a>){
+                            <a href="https://wiki.secondlife.com/wiki/LlDialog" target="_blank" >llDialog</a>(<a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner()</a>,"\nThis object is not linked to your BtcPay store yet!\n\nPlease, click [Register] to start the linking and authorization process...",["Register","Cancel"],channel);
+                        }
+                    }
+                    else if(authStatus == "fail" && authorized == "False"){
+                        <span class="commented">/* Here the registration in the plugin side failed...*/</span>
+                        <a href="https://wiki.secondlife.com/wiki/LlSetText" target="_blank" >llSetText</a>("Out Of Service\nFatal Error",<1,0,0>,1.0);
+                        if(avatar == <a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner()</a>){
+                            <a href="https://wiki.secondlife.com/wiki/LlLoadURL" target="_blank" >llLoadURL</a>(<a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner()</a>,"\nThis object failed to register!\n\nPlease open this page and investigate the problem and try again...", BTCPayServerURL + "/stores/" + storeID + "/plugins/opensim");
+                        }
+                    }
+                }
+                else{
+                    <span class="commented">/* Show the plugin errors if there is...*/</span>
+                    <a href="https://wiki.secondlife.com/wiki/LlSetText" target="_blank" >llSetText</a>("Out Of Service\nFatal Error",<1,0,0>,1.0);
+                    <a href="https://wiki.secondlife.com/wiki/LlOwnerSay" target="_blank" >llOwnerSay</a>("\nError: \n" + <a href="https://wiki.secondlife.com/wiki/LlJsonGetValue" target="_blank" >llJsonGetValue</a>(Response,["ospError"]));
+                }
+            }
+        }
+        else{
+            <span class="commented">/* Show errors in case of problems with your BTCPay server...*/</span>
+            <a href="https://wiki.secondlife.com/wiki/LlSetText" target="_blank" >llSetText</a>("Out Of Service\nFatal Error",<1,0,0>,1.0);
+            <a href="https://wiki.secondlife.com/wiki/LlOwnerSay" target="_blank" >llOwnerSay</a>("\nError: \nDetected a problem with your BTCPay instance!\nStatus: " + status);
+        }
+    }
+</code></pre>
+	<p>
+    For the new objects, the plugin returns the following Json that set the object's hover text to <span style="color: #f00;">"Out Of Service - Unknown Object"</span> and makes the object only useable by it's owner. 
+    Also, clicking the object opens a blue box ( <a href="https://wiki.secondlife.com/wiki/LlDialog" target="_blank" >llDialog</a> ) that invite the owner to register this object...
+	</p>
+<pre><code>{"status":"unknown"}</code></pre>
+	<p>
+    When the object's owner click the [Register] button in the blue box ( <a href="https://wiki.secondlife.com/wiki/LlDialog" target="_blank" >llDialog</a> ), the script execute the authorization("register") function witn the "register" parameter under the <a href="https://wiki.secondlife.com/wiki/Listen" target="_blank" >listen</a> event handler:
+	</p>
+<pre><code><span class="commented">/* Global variables needed in this code:
+key avatar 
+*/</span>
+
+    <a href="https://wiki.secondlife.com/wiki/Listen" target="_blank" >listen</a>(integer channel, string name, key id, string Box){
+        if(avatar == <a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner()</a> && Box == "Register"){
+           <span style="color: #f00;">authorization("register")</span>;
+        }
+    }
+</code></pre>
+	<p>
+    and the plugin return one of the 2 possible status: 
+	</p>
+<pre><code>{"status":"success","authorized":"False"}</code></pre>
+    Or
+<pre><code>{"status":"fail","authorized":"False"}</code></pre>
+    <ul>
+        <li>
+            <b>"success":</b> means that the object was successfully saved in the plugin database and appear in the "Pending Authorizations" box in the "Authorizations Manager" section. Now the object's hover text show <span style="color: #f00;">"Out Of Service - Missing Authorization"</span> and the click open's a blue box ( <a href="https://wiki.secondlife.com/wiki/LlLoadURL" target="_blank" >llLoadURL</a> ) that invite the owner to open her/his BTCPay store > plugin to authorize the object...
+        </li>
+        <li>
+            <b>"fail":</b> mean something gose wrong in the registration part. The object' hover text will show <span style="color: #f00;">"Out Of Service - Fatal Error"</span> and the click open's a blue box ( <a href="https://wiki.secondlife.com/wiki/LlLoadURL" target="_blank" >llLoadURL</a> ) that invite the owner to open her/his BTCPay store > plugin to investigate and fix...
+        </li>
+    </ul>
+	<p>
+    After a successful registration, the click on the object fire the authorization("check") but the returned Json will be:
+	</p>
+<pre><code>{"status":"registred","authorized":"False"}</code></pre>
+    <p>
+        Now, the object's owner have to login to her/his store > plugin, verify the object data and click the corresponding [Authorize] button. After that the object will appear in the "Authorized Objects" box and is allowed to request invoices from the owner's store.
+        <br>This manual intervention proof that the user is a human and she/he is the owner of both: the used store and the inWorld object.
+    <br><br>
+    After a successful authorization, the script restart or the object click fires the authorization("check") and the return will be:
+	</p>
+<pre><code>{"status":"registred","authorized":"True"}</code></pre>
+    That it for the authorization part... <br><br>
+    <div class="alert alert-warning" style="margin-left: 0;"><i>Note: For security reasons, the plugin do not allow more than 3 pending authorizations requests per store and the owner have to remove or authorize the pending objects to be able to add more objects registrations.</i>
+    </div>
+    
+    <p>For the invoicing part, the scripts do the majority of the job in term of verifications and the invoice request building and have its own function. But before all, is important to know how the script protect itself and your store.
+    </p>
+    For each use, the script:
+    <ul>
+        <li>Allow only one avatar at time (current user) to request an invoice and interact with the object while processing.</li>
+        <li>Allow only one invoice per avatar at time. If the current user click the object while processing, a blue box will appear inviting her/him to open the current invoice page.</li>
+        <li>Request from Opensimulator a single time use and destructible endpoint URL using <a href="https://wiki.secondlife.com/wiki/LlRequestURL" target="_blank" >llRequestURL()</a> to capture the BTCPay notifications. 
+        The life and the validity time of the generated endpoint depends on the invoice status and your store settings. The current endpoint is destroyed by <a href="https://wiki.secondlife.com/wiki/LlReleaseURL" target="_blank" >llReleaseURL()</a> in the reset() function when the invoice status is "expired" or "confirmed" or when the invoice was marked ("invalid" or "complete"). </li>
+        <li>Generate a single time use random UUID and set it as "orderId" in the invoice parameters. The orderID play the role of a session ID and is destroyed by the reset() function.</li>
+        <li>Check if the IP of the incoming notifications sender is the same as the "allowedHttpInIP" in the global variables.</li>
+        <li>Check if the notification "url" start with the "BTCPayServerURL" that you have set in the global variables.</li>
+        <li>Check if the notification "invoiceId" and the "orderId" are the same as the inMemory invoiceID and orderID.</li>
+        <li>Reset the script / object and purge all the current invoice data at the end of the processing.</li>
+        <li>Handles errors and make the object "Out Of Service" if needed.</li>
+    </ul>
+    <p>
+	So, let's see this as LSL code by extending a bit the previous code... 
+    <br> In this example we will chain (on click) the authorization() and the invoice request using the plugin return in case of an authorized object to call the requestInvoice() function.
+	</p>
+<pre><code><span class="commented">/* Global variables needed in this code:
+key authorizationRequest_id
+key IPNEndpointRequest_id
+key avatar
+string invoiceID
+string invoiceURL
+string orderID
+string txStatus
+*/</span>
+    <a href="https://wiki.secondlife.com/wiki/Touch_start" target="_blank" >touch_start</a>(integer n){
+        if (avatar == NULL_KEY){
+            avatar = <a href="https://wiki.secondlife.com/wiki/LlDetectedKey" target="_blank" >llDetectedKey(0)</a>;
+            <span style="color:#f00;">authorization("check")</span>;
+        }
+        else if (avatar != <a href="https://wiki.secondlife.com/wiki/LlDetectedKey" target="_blank" >llDetectedKey(0)</a>){
+            <a href="https://wiki.secondlife.com/wiki/LlInstantMessage" target="_blank" >llInstantMessage</a>(<a href="https://wiki.secondlife.com/wiki/LlDetectedKey" target="_blank" >llDetectedKey(0)</a>, "This device is in use!/nPlease wait...");
+        }
+        else if (active && avatar == <a href="https://wiki.secondlife.com/wiki/LlDetectedKey" target="_blank" >llDetectedKey(0)</a> && txStatus != ""){
+            <a href="https://wiki.secondlife.com/wiki/LlInstantMessage" target="_blank" >llInstantMessage</a>(avatar, "\nTransaction in progress!\nYour invoice ID is:\n"+ invoiceID +"\\nInvoice page at:\\n"+ invoiceURL +"\nPlease wait...");
+            <a href="https://wiki.secondlife.com/wiki/LlLoadURL" target="_blank" >llLoadURL</a>(avatar, "Click to open the payment page.\nYour invoice ID is : "+ invoiceID +"\\nThank you for your payment!", invoiceURL);
+        }
+    }
+
+    <a href="https://wiki.secondlife.com/wiki/Http_response" target="_blank" >http_response</a>(key id, integer status, list metaData, string Response){
+        if (status == 200 ){
+            if (id == authorizationRequest_id){
+                if(<a href="http://opensimulator.org/wiki/OsStringIndexOf" target="_blank" >osStringIndexOf</a>(Response,"ospError",0) == -1){ <span class="commented">/* if not an Error */</span>
+                    string authStatus = <a href="https://wiki.secondlife.com/wiki/LlJsonGetValue" target="_blank" >llJsonGetValue</a>(Response,["status"]);
+                    string authorized = <a href="https://wiki.secondlife.com/wiki/LlJsonGetValue" target="_blank" >llJsonGetValue</a>(Response,["authorized"]);
+                    if(authStatus == "registred" && authorized == "True"){
+                        <span class="commented">/* We request our endpoint to capture the BTCPay notifications and is set later under http_request event */</span>
+                        IPNEndpointRequest_id = <a href="https://wiki.secondlife.com/wiki/LlRequestURL" target="_blank" >llRequestURL()</a>;
+                        <span class="commented">/* We cast a random key to string and set the invoice parameter "orderId". */</span>
+                        orderID = (string)<a href="https://wiki.secondlife.com/wiki/LlGenerateKey" target="_blank" >llGenerateKey()</a>;
+                         <span class="commented">/* If all the other invoice parameters are set, we fire the requestInvoice() function. */</span>
+                        <span style="color: #f00;">requestInvoice()</span>;
+                        txStatus = "new";
+                    }
+                }
+            }
+        }
+    }
+</code></pre>
+	<p>
+    The endpoint URL and the BTCPay notifications are captured by the <a href="https://wiki.secondlife.com/wiki/Http_request" target="_blank" >http_request</a> event handler. 
+    For example we get the endpoint URL requested by the <a href="https://wiki.secondlife.com/wiki/LlRequestURL" target="_blank" >llRequestURL()</a> and set the invoice parameter "serverIpn" like this:
+	</p>
+<pre><code><span class="commented">/* Global variables needed in this code:
+key IPNEndpointRequest_id
+string IPNEndpointURL
+*/</span>
+
+    <a href="https://wiki.secondlife.com/wiki/Http_request" target="_blank" >http_request</a>(key id, string method, string body){
+        if (id == IPNEndpointRequest_id && method == URL_REQUEST_GRANTED){
+            IPNEndpointURL = body;
+            <a href="https://wiki.secondlife.com/wiki/LlHTTPResponse" target="_blank" >llHTTPResponse</a>(id, 200, ""); 
+        }
+    }
+</code></pre>
+	<p>
+    The requestInvoice() function build and POST the invoice request to your BTCPay instance and must be called only after setting or populating the invoice parameters from the the script variables:
+	</p>
+<pre><code><span class="commented">/* Global variables needed in this code:       
+string BTCPayServerURL
+string storeID
+string currency
+string price
+string defaultPaymentMethod
+string orderID
+string IPNEndpointURL
+string checkoutDesc
+string notificationEmail
+string redirectURL 
+string checkoutQueryString
+key requestInvoice_id
+*/</span>
+
+<span style="color: #f00;">requestInvoice()</span>{
+    string formData = "";
+    formData += "storeId="+  <a href="https://wiki.secondlife.com/wiki/LlEscapeURL" target="_blank" >llEscapeURL</a>(storeID);
+    formData += "&price="+  <a href="https://wiki.secondlife.com/wiki/LlEscapeURL" target="_blank" >llEscapeURL</a>(price);
+    formData += "&<span>currency</span>="+  <a href="https://wiki.secondlife.com/wiki/LlEscapeURL" target="_blank" >llEscapeURL</a>(currency);
+    formData += "&defaultPaymentMethod="+  <a href="https://wiki.secondlife.com/wiki/LlEscapeURL" target="_blank" >llEscapeURL</a>(defaultPaymentMethod);
+    formData += "&orderId="+  <a href="https://wiki.secondlife.com/wiki/LlEscapeURL" target="_blank" >llEscapeURL</a>(orderID);
+    formData += "&serverIpn="+  <a href="https://wiki.secondlife.com/wiki/LlEscapeURL" target="_blank" >llEscapeURL</a>(IPNEndpointURL);   
+    if (checkoutDesc != ""){
+        formData += "&checkoutDesc="+ <a href="https://wiki.secondlife.com/wiki/LlEscapeURL" target="_blank" >llEscapeURL</a>(checkoutDesc);
+    }
+    if (redirectURL != ""){
+        formData += "&browserRedirect="+ <a href="https://wiki.secondlife.com/wiki/LlEscapeURL" target="_blank" >llEscapeURL</a>(redirectURL);
+    }
+    if (notificationEmail != ""){
+        formData += "&<span>notifyEmail</span>="+ <a href="https://wiki.secondlife.com/wiki/LlEscapeURL" target="_blank" >llEscapeURL</a>(notificationEmail);
+    }
+    if (checkoutQueryString != ""){
+        formData += "&checkoutQueryString="+ <a href="https://wiki.secondlife.com/wiki/LlEscapeURL" target="_blank" >llEscapeURL</a>(checkoutQueryString);
+    }
+
+    requestInvoice_id = <a href="https://wiki.secondlife.com/wiki/LlHTTPRequest" target="_blank" >llHTTPRequest</a>(
+        BTCPayServerURL +"/opensim/invoices",
+        [
+            HTTP_METHOD,"POST",
+            HTTP_MIMETYPE,"application/x-www-form-urlencoded",
+            HTTP_BODY_MAXLENGTH,16384,
+            HTTP_VERIFY_CERT,FALSE, <span class="commented">/* FALSE for 127.0.0.1 else TRUE */</span>
+            HTTP_CUSTOM_HEADER,"x-opensim-store-id",storeID,
+            HTTP_CUSTOM_HEADER,"x-opensim-owner-home-url", <a href="http://opensimulator.org/wiki/OsGetAvatarHomeURI" target="_blank" >osGetAvatarHomeURI</a>(<a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner</a>()),
+            HTTP_CUSTOM_HEADER,"x-opensim-object-host-url", <a href="http://opensimulator.org/wiki/OsGetGridHomeURI" target="_blank" >osGetGridHomeURI</a>()
+        ],
+        formData );
+}</code></pre>
+	<p>
+    In the plugin side, for each incoming invoice request, the plugin verify the following points:
+	</p>
+       <ul>
+        <li>If the store ID is valid...</li>
+        <li>If the price is not zero and the script's endpoint and the order ID are not empty...</li>
+        <li>If the request headers contain some <a href="https://wiki.secondlife.com/wiki/LlHTTPRequest" target="_blank" >llHTTPRequest</a> specific headers needed for the authorization verification...</li>
+        <li>If the the avatar and the object from their respective origins are authorized to create invoices in the store...</li>
+        <li>If the posData is under 500 characters...</li>
+       </ul>
+	<p>
+    If all is OK, the plugin use the form data to create the invoice and return the invoice ID and URL that are handled under <a href="https://wiki.secondlife.com/wiki/Http_response" target="_blank" >http_response</a>
+     and open a blue box ( <a href="https://wiki.secondlife.com/wiki/LlLoadURL" target="_blank" >llLoadURL</a> ) that invite the user to open the invoice page.</p>
+<pre><code><span class="commented">/* Global variables needed in this code:
+key avatar
+key requestInvoice_id
+string invoiceID
+string invoiceURL
+*/</span>
+    
+    <a href="https://wiki.secondlife.com/wiki/Http_response" target="_blank" >http_response</a>(key id, integer status, list metaData, string Response){
+        if (status == 200 ){
+            if (id == requestInvoice_id){
+                invoiceID = <a href="https://wiki.secondlife.com/wiki/LlJsonGetValue" target="_blank" >llJsonGetValue</a>(Response, ["invoiceId"]);
+                invoiceURL = <a href="https://wiki.secondlife.com/wiki/LlJsonGetValue" target="_blank" >llJsonGetValue</a>(Response, ["invoiceUrl"]);
+                <a href="https://wiki.secondlife.com/wiki/LlLoadURL" target="_blank" >llLoadURL</a>(avatar, "Click to open the payment page.\nYour invoice ID is : "+ invoiceID, invoiceURL);
+            }
+        }
+        else {
+            llOwnerSay("\nStatus :"+ status +"\nError : \n"+ Response);
+            reset();
+        }
+    }
+</code></pre>
+	<p>
+    At this point of the processing, the script is in wait of the user payment and the BTCPay notifications to perform some verifications and actions based on the notification data.
+     The notifications are captured by the <a href="https://wiki.secondlife.com/wiki/Http_request" target="_blank" >http_request</a> event handler:
+	</p>
+<pre><code><span class="commented">/* Global variables needed in this code:
+string BTCPayServerURL
+string allowedHttpInIP
+key avatar
+string invoiceID
+string orderID
+*/</span>
+    <a href="https://wiki.secondlife.com/wiki/Http_request" target="_blank" >http_request</a>(key id, string method, string body){
+        if (<a href="https://wiki.secondlife.com/wiki/LlGetHTTPHeader" target="_blank" >llGetHTTPHeader</a>(id, "x-remote-ip") == allowedHttpInIP && <a href="http://opensimulator.org/wiki/OsStringIndexOf" target="_blank" >osStringIndexOf</a>(<a href="https://wiki.secondlife.com/wiki/LlJsonGetValue" target="_blank" >llJsonGetValue</a>(body,["url"]), BTCPayServerURL,0) > -1){
+            string invoiceOrderId = <a href="https://wiki.secondlife.com/wiki/LlJsonGetValue" target="_blank" >llJsonGetValue</a>(body, ["orderId"]);
+            string invoiceId = <a href="https://wiki.secondlife.com/wiki/LlJsonGetValue" target="_blank" >llJsonGetValue</a>(body, ["id"]);
+            string invoiceStatus = <a href="https://wiki.secondlife.com/wiki/LlJsonGetValue" target="_blank" >llJsonGetValue</a>(body, ["status"]);
+            if (method == "POST" && invoiceOrderId == orderID && invoiceId == invoiceID){
+                if(invoiceStatus == "expired" || invoiceStatus == "invalid"){
+                    <span class="commented">/* The invoice expired or marked invalid. We inform the owner and the user... */</span>
+                    <a href="https://wiki.secondlife.com/wiki/LlInstantMessage" target="_blank" >llInstantMessage</a>(avatar, "Operation Fail!\nInvoice ID: "+ invoiceID +" status is "+ invoiceStatus +".\nPlease try again or contact "+ llKey2Name(llGetOwner()) +" and provide your invoice ID: \n"+ invoiceID +"\nif you did a payment.");
+                    if (notifications){
+                        <a href="https://wiki.secondlife.com/wiki/LlOwnerSay" target="_blank" >llOwnerSay</a>("\nWarning: Invoice ID:\n"+ invoiceID +" Fail!\nStatus is "+ invoiceStatus);
+                    }
+                    <span class="commented">/* We return status 200 to BTCPay... */</span>
+                    <a href="https://wiki.secondlife.com/wiki/LlHTTPResponse" target="_blank" >llHTTPResponse</a>(id, 200, "");
+                    <span class="commented">/* And the script reset the object and make it available for the next user. */</span>
+                    <span style="color: #f00;">reset()</span>;
+                }
+                else if (invoiceStatus == "paid"){
+                    <span class="commented">/* The invoice was paid but not fully confirmed yet... We inform the user and the owner...*/</span>
+                    <a href="https://wiki.secondlife.com/wiki/LlInstantMessage" target="_blank" >llInstantMessage</a>(avatar, "\nThank you for your...\nInvoice ID: "+ invoiceID +" is paid and in wait of the usual confirmations.");
+                    if (notifications){
+                        <a href="https://wiki.secondlife.com/wiki/LlOwnerSay" target="_blank" >llOwnerSay</a>("\n"+ osKey2Name(avatar) +" donated "+ price +" "+ currency +"!\nYou have recived: "+ llJsonGetValue(body, ["btcPrice"]) +" "+ defaultPaymentMethod +".\nInvoice ID: "+ invoiceID +" Paid (waiting confirmations).");
+                    }
+                    <span class="commented">/* We return status 200 to BTCPay... */</span>
+                    <a href="https://wiki.secondlife.com/wiki/LlHTTPResponse" target="_blank" >llHTTPResponse</a>(id, 200, "");
+                }
+                else if (invoiceStatus == "confirmed" || invoiceStatus == "complete"){
+                    <span class="commented">/* Now is the delivery time! The invoice was fully paid and confirmed. We inform the user and the owner and the object must do what is supposed to do after a successful payment. */</span>
+                    <a href="https://wiki.secondlife.com/wiki/LlInstantMessage" target="_blank" >llInstantMessage</a>(avatar, "\nThank you for your...(purchase, donation...)\nInvoice ID: "+ invoiceID +" was fully paid and confirmed.");
+                    if (notifications == TRUE){
+                        <a href="https://wiki.secondlife.com/wiki/LlOwnerSay" target="_blank" >llOwnerSay</a>("\nInvoice ID: " + invoiceID +" Confirmed.");
+                    }
+                    <span class="commented">/* We return status 200 to BTCPay... */</span>
+                    <a href="https://wiki.secondlife.com/wiki/LlHTTPResponse" target="_blank" >llHTTPResponse</a>(id, 200, "");
+                    <span class="commented">/* The End :) The invoice was successfully handled and done. Now is time to reset the object and make it available for the next user. */</span>
+                    <span style="color: #f00;">reset()</span>;
+                }
+            }
+        }
+        <span class="commented">/* Just return status 200 to any */</span>
+        <a href="https://wiki.secondlife.com/wiki/LlHTTPResponse" target="_blank" >llHTTPResponse</a>(id, 200, "");
+    }
+</code></pre>
+    <p>And that it!<br>
+    The scripts in the "LSL Scripts" section was made with 2 states and each handle a part of the process. So, you have just to read the <b><i>default</i></b> state to get the authorization part and the <b><i>authorized</i></b> state to get the invoicing part.<br>You can also merge both states in one and adapt them to your own cases of use.
+    </p>
+    <p>Thanks to BTCPay, the adoption of cryptocurrencies in the HyperGrid become a question of choice and not a technical matter.
+    </p>
+			</div>
+		</div>
+	</div>
+	<div class="panel panel-default">
+		<div class="panel-heading">
+			<h6 class="panel-title">
+				<a data-bs-toggle="collapse" class="doc-title" href="#collapse4" aria-expanded="false">Version Notes & Changelog:</a>
+			</h6>
+		</div>
+		<div id="collapse4" class="panel-collapse collapse">
+			<div class="panel-body">
+    <span class="commented">v0.1.1 Pre-Release:</span>
+    <p>This is the very first version made as proof of concept and work of BTCPay as a solution to accept cryptocurrencies payments in the Opensimulator virtual Worlds without any need to an opensim region module or exposing sensive data and using just LSL scripts.</p>
+    <p>The Opensimulator plugin do not set or get any sensive data from / in the BTCPay database and have it's own context and SQLite database making it safe and easy to install and remove if needed. Also the plugin do not expose the BTCPay instance more than the "Pay Button" and the permissions / limitations layer makes it a bit safer. </p>
+    <p>This version needs an audit and the green light from BTCPay DEV team. Also need a stress test in real conditions using multiple Altcoins and 100s objects...</p>
+
+			</div>
+		</div>
+	</div>
+</div> 
+    </div>
+<div id="osCreditsPage" class="osPage" style="display: none;">
+    <h6>Thanks Where Due:</h6>
+    <ul>
+        <li>Special thanks to the Opensimulator Dev team and project for creating and maintaining, for more than 15 years now, an amazing free and open source alternative to the Linden Lab's virtual world. I started to learn C# in 2011-12 to understand how Opensimulator works and how is possible to generate and serve something like a virtual world with just some data.</li>
+        <li>Special thanks to the BTCPay Server team for making easy the adoption of cryptocurrencies everywhere with this ingenious payments processing method and the multiple integrations solutions. Also, for forcing me to update my C# knowladge. I learned many new things about ASP.NET thanks to their works.</li>
+        <li>Special thanks to <a href="/holy-lol" target="_blank">Mr.Dorier</a> and the BTCPay team members who want to turn those scammers in borico and i hope by adding this case of use to BTCPay will make them more obsolete than they are.
+        <br>As is said: The karma... good or bad... soon or later... always payback.</li>
+    </ul>
+    <hr>
+    <h6>Used Libraries and SDKs:</h6>
+    <ul>
+        <li>Multiple Microsoft .NET products. </li>
+        <li><a href="https://github.com/btcpayserver/btcpayserver" target="_blank">BTCPay Server</a>.</li>
+        <li><a href="https://github.com/btcpayserver/btcpayserver-plugin-template" target="_blank">BTCPay Server Plugin Template</a>.</li>
+        <li><a href="https://getbootstrap.com/" target="_blank">Bootstrap v5.2.3</a>.</li>
+        <li><a href="https://jquery.com/" target="_blank">jQuery JavaScript Library v3.6.0</a>.</li>
+        <li><a href="http://opensimulator.org/wiki/Main_Page" target="_blank">Opensimulator v0.9.2.2</a>.</li>
+        <li><a href="https://wiki.secondlife.com/wiki/Getting_started_with_LSL" target="_blank">Linden Lab Scripting Language (LSL)</a> and <a href="https://wiki.secondlife.com/wiki/Category:LSL_Functions">functions</a>.</li>
+        <li><a href="http://opensimulator.org/wiki/OSSL" target="_blank">Opensimulator Scripting Language (OSSL)</a> and <a href="http://opensimulator.org/wiki/OSSL_Implemented">functions</a>.</li>
+    </ul>
+    <hr>
+    <h6>Edited using:</h6>
+    <ul>
+        <li><a href="https://code.visualstudio.com/">Visual Studio Code</a> (Plugin side).</li>
+        <li><a href="https://www.firestormviewer.org/windows-for-open-simulator/" target="_blank">Firestorm for Opensimulator Win-x64 v6-6-14-69596</a> (Internal scripts editor).</li>
+        <li><a href="http://opensimulator.org/wiki/Main_Page" target="_blank">Opensimulator v0.9.2.2</a> (YEngine compiler and scripts engine).</li>
+    </ul>  
+    
+    <hr>
+    <h6>About the author:</h6>
+    <p>
+        Adil El Farissi, 47 years, i am just a modest social entrepreneur and a polyvalent freelancer R&D from Tangier in Morocco. 
+        <br>3D and virtual worlds edition and codding are ones of my multiple hobbies... So, i do some fun where i can as i can.
+        <br>Thank you & Enjoy <i class="fa fa-heart" style="color: #0f0;margin-left:5px;"></i>
+    </p>
+</div>
