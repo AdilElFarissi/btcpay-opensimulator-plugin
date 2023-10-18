@@ -73,7 +73,8 @@
     filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#00c0ef', endColorstr='#007682',GradientType=1 ); /* IE6-9 */
 }
 button{border: none;}
-.btn{border: 1px solid #030;}
+button i{margin-right: 5px;}
+
 
 .tableTitle{
     border-bottom-right-radius: 0;
@@ -154,5 +155,9 @@ select, input{
     border-left: 10px solid #aaa;
     color: #000;
     font-weight: bold;
+    font-style: italic;
+    
+}
+.osPage .alert{
     margin-left: 10px;
 }

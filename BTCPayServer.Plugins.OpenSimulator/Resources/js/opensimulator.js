@@ -167,7 +167,7 @@ function updateTipjarScript (){
     tipjarHtml += 'would load the checkout page in Danish by default. */\n';
     tipjarHtml += 'string checkoutQueryString = "'+ $("#tjCheckoutQueryString").val().trim() +'";\n\n';
     
-    tipjarHtml += '/* If set to TRUE will inform you if you when you recive donations in the chat. */\n';
+    tipjarHtml += '/* If set to TRUE will inform you when you recive donations in the chat. */\n';
     tipjarHtml += 'integer notifications = '+ $("#tjChatNotification").val() +';\n\n';
     
     tipjarHtml += '/*** The following don\'t need change ***/\n';

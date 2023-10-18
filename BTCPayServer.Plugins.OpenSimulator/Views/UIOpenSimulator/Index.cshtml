@@ -4,6 +4,7 @@
 @using BTCPayServer.Abstractions.Extensions
 @using BTCPayServer.Plugins.OpenSimulator.Views
 @using Microsoft.AspNetCore.Mvc.TagHelpers
+@using Newtonsoft.Json
 @inject ContentSecurityPolicies Csp
 @model BTCPayServer.Plugins.OpenSimulator.Models.OpenSimulatorPageViewModel
 @{
@@ -87,7 +88,8 @@
     </div>
 </div>
     <script type="text/javascript" nonce="@nonce">
-        var osModel = JSON.parse("@JsonSerializer.Serialize(Model.Data.OrderByDescending(t => t.Timestamp))".replace(/&quot;/g,"\"")); 
+        var osModel = @Html.Raw(JsonConvert.SerializeObject(Model.Data.OrderByDescending(t => t.Timestamp))); 
+console.log(osModel);
         var StoreId = "@Model.StoreID";
         var defaultPaymentMethod = "@Model.StoreDefaultPaymetMethod";
         var defaultCurrency = "@Model.StoreDefaultCurrency";
@@ -134,7 +136,7 @@
             <pre style="border: 1px solid #2e2e2e;"><code id="tipjarScriptCode" style="display:block;width: 540px;height:330px;">
             </code></pre>
             <button class="btn btn-outline-secondary pull-right bg-green" style="margin-right: 5px;" data-clipboard-target="#tipjarScriptCode">
-                <vc:icon symbol="copy"/>&nbsp;Copy Code
+                <i class="fa fa-copy"></i>&nbsp;Copy Code
             </button>
         </div>
         <div class="col-md-4">
@@ -237,7 +239,7 @@
                     <input id="vCheckoutQueryString" type="text">
                 </div>
                 <button class="btn btn-outline-secondary" style="position:relative;top:18px;width:100%;" data-clipboard-target="#vendorScriptCode">
-                <vc:icon symbol="copy"/>&nbsp;Copy Code
+                <i class="fa fa-copy"></i>&nbsp;Copy Code
                 </button>
 
             </div>
@@ -329,7 +331,7 @@
                 </div>
                 
                 <button class="btn btn-outline-secondary" style="position:relative;top:20px;width:100%;" data-clipboard-target="#rentalScriptCode">
-                <vc:icon symbol="copy"/>&nbsp;Copy Code
+                <i class="fa fa-copy"></i>&nbsp;Copy Code
                 </button>
 
             </div>
@@ -574,10 +576,10 @@ key avatar
 <pre><code>{"status":"fail","authorized":"False"}</code></pre>
     <ul>
         <li>
-            <b>"success":</b> means that the object was successfully saved in the plugin database and appear in the "Pending Authorizations" box in the "Authorizations Manager" section. Now the object's hover text show <span style="color: #f00;">"Out Of Service - Missing Authorization"</span> and the click open's a blue box ( <a href="https://wiki.secondlife.com/wiki/LlLoadURL" target="_blank" >llLoadURL</a> ) that invite the owner to open her/his BTCPay store > plugin to authorize the object...
+            <b>"success":</b> means that the object was successfully saved in the plugin database and appear in the "Pending Authorizations" box in the "Authorizations Manager" section. Now the object's hover text show <span style="color: #f00;">"Out Of Service - Missing Authorization"</span> and the click open a blue box ( <a href="https://wiki.secondlife.com/wiki/LlLoadURL" target="_blank" >llLoadURL</a> ) that invite the owner to open her/his BTCPay store > plugin to authorize the object...
         </li>
         <li>
-            <b>"fail":</b> mean something gose wrong in the registration part. The object' hover text will show <span style="color: #f00;">"Out Of Service - Fatal Error"</span> and the click open's a blue box ( <a href="https://wiki.secondlife.com/wiki/LlLoadURL" target="_blank" >llLoadURL</a> ) that invite the owner to open her/his BTCPay store > plugin to investigate and fix...
+            <b>"fail":</b> mean something gose wrong in the registration part. The object' hover text will show <span style="color: #f00;">"Out Of Service - Fatal Error"</span> and the click open a blue box ( <a href="https://wiki.secondlife.com/wiki/LlLoadURL" target="_blank" >llLoadURL</a> ) that invite the owner to open her/his BTCPay store > plugin to investigate and fix...
         </li>
     </ul>
 	<p>
