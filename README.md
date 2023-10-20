@@ -7,6 +7,7 @@ More infos about BTCPay Server ([Documentation](https://docs.btcpayserver.org/))
 Read more about [OpenSimulator](http://opensimulator.org/wiki/Main_Page).
 
 <b>How to install the plugin ?</b>
+
 Currently the plugin is available in the BTCPay Plugins Manager in Pre-release phase.
 
 To display it in BTCPay, click "Server Settings" in the left menu and select "Policies" in the top menu. scroll down to the "Plugins" section and select "Show plugins in pre-release"... Save and click in the left menu on "Manage Plugins" you will see the plugin in the list, click "Install" to install it.
