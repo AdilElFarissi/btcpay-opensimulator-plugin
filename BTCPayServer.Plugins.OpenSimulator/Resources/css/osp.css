@@ -74,7 +74,14 @@
 }
 button{border: none;}
 button i{margin-right: 5px;}
-
+.btn[data-clipboard-target]{
+    color: #ccc;
+    text-shadow: 1px 1px 1px #000;
+}
+.btn[data-clipboard-target]:hover{
+    color: #c3ffc1;
+    text-shadow: 1px 1px 1px #000;
+}
 
 .tableTitle{
     border-bottom-right-radius: 0;
