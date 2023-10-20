@@ -10,7 +10,7 @@ public class OpenSimulatorPlugin : BaseBTCPayServerPlugin
 {
     public override IBTCPayServerPlugin.PluginDependency[] Dependencies { get; } =
     {
-        new() { Identifier = nameof(BTCPayServer), Condition = ">=1.11.6" }
+        new() { Identifier = nameof(BTCPayServer), Condition = ">=1.11.7" }
     };
 
     public override void Execute(IServiceCollection services)
