@@ -1304,11 +1304,11 @@ function updateRentalBoxScript(){
 
     rentalBoxHtml += 'requestInvoice(){\n';
     rentalBoxHtml += '    string formData = "";\n';
-    rentalBoxHtml += '    formData += "storeId="+ storeID;\n';
-    rentalBoxHtml += '    formData += "&price="+ totalToPay;\n';
-    rentalBoxHtml += '    formData += "&currency="+ currency;\n';
-    rentalBoxHtml += '    formData += "&defaultPaymentMethod="+ defaultPaymentMethod;\n';
-    rentalBoxHtml += '    formData += "&orderId="+ orderID;\n';
+    rentalBoxHtml += '    formData += "storeId="+ llEscapeURL(storeID);\n';
+    rentalBoxHtml += '    formData += "&price="+ llEscapeURL(totalToPay);\n';
+    rentalBoxHtml += '    formData += "&currency="+ llEscapeURL(currency);\n';
+    rentalBoxHtml += '    formData += "&defaultPaymentMethod="+ llEscapeURL(defaultPaymentMethod);\n';
+    rentalBoxHtml += '    formData += "&orderId="+ llEscapeURL(orderID);\n';
     rentalBoxHtml += '    formData += "&checkoutDesc="+  llEscapeURL("Thank you "+ osKey2Name(avatar) +" for purchasing:"+ parcelName +".");\n';
     rentalBoxHtml += '    formData += "&serverIpn="+ llEscapeURL(IPNEndpointURL);   \n';
     rentalBoxHtml += '    if(redirectURL != ""){\n';
@@ -1533,7 +1533,7 @@ function updateRentalBoxScript(){
     rentalBoxHtml += '    http_request(key id, string method, string body){\n';
     rentalBoxHtml += '        if(id == IPNEndpointRequest_id && method == URL_REQUEST_GRANTED){\n';
     rentalBoxHtml += '            IPNEndpointURL = body;\n';
-    rentalBoxHtml += '            llHTTPResponse(id, 200, "success");\n';
+    rentalBoxHtml += '            llHTTPResponse(id, 200, "");\n';
     rentalBoxHtml += '        }\n';
     rentalBoxHtml += '        else if(llGetHTTPHeader(id, "x-remote-ip") == allowedHttpInIP && osStringIndexOf(llJsonGetValue(body,["url"]), BTCPayServerURL,0) > -1){\n';
     rentalBoxHtml += '            string invoiceOrderId = llJsonGetValue(body, ["orderId"]);\n';
@@ -1545,7 +1545,7 @@ function updateRentalBoxScript(){
     rentalBoxHtml += '                    if(notifications){\n';
     rentalBoxHtml += '                        llOwnerSay("\\nWarning: Invoice ID: "+ invoiceID +" expired!\\n"+ osKey2Name(avatar) +" did not pay in time...");\n';
     rentalBoxHtml += '                    }\n';
-    rentalBoxHtml += '                    llHTTPResponse(id, 200, "success");\n';
+    rentalBoxHtml += '                    llHTTPResponse(id, 200, "");\n';
     rentalBoxHtml += '                    reset();\n';
     rentalBoxHtml += '                }\n';
     rentalBoxHtml += '                else if(invoiceStatus == "paid"){\n';
@@ -1556,7 +1556,7 @@ function updateRentalBoxScript(){
     rentalBoxHtml += '                    }\n';
     rentalBoxHtml += '                    txStatus = "paid";\n';
     rentalBoxHtml += '                    llSetTimerEvent(60);\n';
-    rentalBoxHtml += '                    llHTTPResponse(id, 200, "success");\n';
+    rentalBoxHtml += '                    llHTTPResponse(id, 200, "");\n';
     rentalBoxHtml += '                }\n';
     rentalBoxHtml += '                else if(invoiceStatus == "confirmed" || invoiceStatus == "complete"){\n';
     rentalBoxHtml += '                    llInstantMessage(avatar, "\\nThank you for your rental!\\nInvoice ID: "+ invoiceID +" was fully paid and confirmed.");\n';
@@ -1572,13 +1572,13 @@ function updateRentalBoxScript(){
     rentalBoxHtml += '                            llOwnerSay("\\nParcel: " + parcelName +" was successfully delivered to " +osKey2Name(m_avatar));\n';
     rentalBoxHtml += '                        }\n';
     rentalBoxHtml += '                    }\n';
-    rentalBoxHtml += '                    llHTTPResponse(id, 200, "success");\n';
+    rentalBoxHtml += '                    llHTTPResponse(id, 200, "");\n';
     rentalBoxHtml += '                    state rented;\n';
     rentalBoxHtml += '                }\n';
     rentalBoxHtml += '            }\n';
     rentalBoxHtml += '        }\n';
     rentalBoxHtml += '        else{\n';
-    rentalBoxHtml += '            llHTTPResponse(id, 403, "Access Denied!");\n';
+    rentalBoxHtml += '            llHTTPResponse(id, 200, "");\n';
     rentalBoxHtml += '        }\n';
     rentalBoxHtml += '    }\n\n';
 
@@ -1640,7 +1640,7 @@ function updateRentalBoxScript(){
     rentalBoxHtml += '            if(id == requestInvoice_id){\n';
     rentalBoxHtml += '                invoiceID = llJsonGetValue(Response, ["invoiceId"]);\n';
     rentalBoxHtml += '                invoiceURL = llJsonGetValue(Response, ["invoiceUrl"]);\n';
-    rentalBoxHtml += '                if(invoiceID == "" || invoiceURL == ""){\n';
+    rentalBoxHtml += '                if(invoiceID == emptyJson || invoiceURL == emptyJson){\n';
     rentalBoxHtml += '                    llSetText("Out Of Service!",<1,0,0>, 1.0);\n';
     rentalBoxHtml += '                    isOutOfService = TRUE;\n';
     rentalBoxHtml += '                    llOwnerSay("\\nDetected problem with BTCPay server!. This rental box is OUT OF SERVICE.\\nWarning: Empty invoiceID or invoiceURL.\\nStatus :"+ status +"\\n"+ Response);\n';
@@ -1933,4 +1933,11 @@ $("#rbDisplayCurrency, #rbRentalPrice, #rbNotificationEmail, #rbRedirectURL, #rb
 $(".doc-title").on("click", function(){
     $(".panel-collapse").removeClass("show");
     !$(this).attr("aria-expanded") ? $($(this).attr("href")).addClass("show") : $(".panel-collapse").removeClass("show");
+});
+
+$(".btn[data-clipboard-target]").on("click", function(){
+    $(this).html('<i class="fa fa-check"></i> Copy Code');
+    setTimeout(function(){
+        $(".btn[data-clipboard-target]").html('<i class="fa fa-copy"></i> Copy Code');
+    },2500);
 });
