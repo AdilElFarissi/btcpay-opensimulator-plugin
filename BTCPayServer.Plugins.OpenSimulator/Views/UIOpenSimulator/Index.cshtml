@@ -89,7 +89,6 @@
 </div>
     <script type="text/javascript" nonce="@nonce">
         var osModel = @Html.Raw(JsonConvert.SerializeObject(Model.Data.OrderByDescending(t => t.Timestamp))); 
-console.log(osModel);
         var StoreId = "@Model.StoreID";
         var defaultPaymentMethod = "@Model.StoreDefaultPaymetMethod";
         var defaultCurrency = "@Model.StoreDefaultCurrency";
@@ -597,7 +596,7 @@ key avatar
     <div class="alert alert-warning" style="margin-left: 0;"><i>Note: For security reasons, the plugin do not allow more than 3 pending authorizations requests per store and the owner have to remove or authorize the pending objects to be able to add more objects registrations.</i>
     </div>
     
-    <p>For the invoicing part, the scripts do the majority of the job in term of verifications and the invoice request building and have its own function. But before all, is important to know how the script protect itself and your store.
+    <p>For the invoicing part, the scripts do the majority of the job in term of verifications and the invoice request building and have a dedicated state (authorized) and a function. But before all, is important to know how the script protect itself and your store.
     </p>
     For each use, the script:
     <ul>
@@ -624,10 +623,12 @@ string invoiceID
 string invoiceURL
 string orderID
 string txStatus
+integer active
 */</span>
     <a href="https://wiki.secondlife.com/wiki/Touch_start" target="_blank" >touch_start</a>(integer n){
         if (avatar == NULL_KEY){
             avatar = <a href="https://wiki.secondlife.com/wiki/LlDetectedKey" target="_blank" >llDetectedKey(0)</a>;
+            active = TRUE;
             <span style="color:#f00;">authorization("check")</span>;
         }
         else if (avatar != <a href="https://wiki.secondlife.com/wiki/LlDetectedKey" target="_blank" >llDetectedKey(0)</a>){
@@ -713,7 +714,15 @@ key requestInvoice_id
     if (checkoutQueryString != ""){
         formData += "&checkoutQueryString="+ <a href="https://wiki.secondlife.com/wiki/LlEscapeURL" target="_blank" >llEscapeURL</a>(checkoutQueryString);
     }
-
+    string posData =  "{
+                    'AppType':'AppNameOrReference',
+                    'PayerName':'"+ <a href="http://opensimulator.org/wiki/OsKey2Name" target="_blank" >osKey2Name</a>(avatar) +"',
+                    'PayerUUID':'"+ (string)avatar +"',
+                    'ObjectName':'"+ <a href="https://wiki.secondlife.com/wiki/LlGetObjectName" target="_blank" >llGetObjectName()</a> +"',
+                    'ObjectUUID':'"+ <a href="https://wiki.secondlife.com/wiki/LlGetKey" target="_blank" >llGetKey()</a> +"' 
+                    }";
+    formData += "&posData=" +  <a href="https://wiki.secondlife.com/wiki/LlEscapeURL" target="_blank" >llEscapeURL</a>(posData);
+    
     requestInvoice_id = <a href="https://wiki.secondlife.com/wiki/LlHTTPRequest" target="_blank" >llHTTPRequest</a>(
         BTCPayServerURL +"/opensim/invoices",
         [
@@ -722,7 +731,7 @@ key requestInvoice_id
             HTTP_BODY_MAXLENGTH,16384,
             HTTP_VERIFY_CERT,FALSE, <span class="commented">/* FALSE for 127.0.0.1 else TRUE */</span>
             HTTP_CUSTOM_HEADER,"x-opensim-store-id",storeID,
-            HTTP_CUSTOM_HEADER,"x-opensim-owner-home-url", <a href="http://opensimulator.org/wiki/OsGetAvatarHomeURI" target="_blank" >osGetAvatarHomeURI</a>(<a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner</a>()),
+            HTTP_CUSTOM_HEADER,"x-opensim-owner-home-url", <a href="http://opensimulator.org/wiki/OsGetAvatarHomeURI" target="_blank" >osGetAvatarHomeURI</a>(<a href="https://wiki.secondlife.com/wiki/LlGetOwner" target="_blank" >llGetOwner()</a>),
             HTTP_CUSTOM_HEADER,"x-opensim-object-host-url", <a href="http://opensimulator.org/wiki/OsGetGridHomeURI" target="_blank" >osGetGridHomeURI</a>()
         ],
         formData );
@@ -793,7 +802,7 @@ string orderID
                     <span class="commented">/* The invoice was paid but not fully confirmed yet... We inform the user and the owner...*/</span>
                     <a href="https://wiki.secondlife.com/wiki/LlInstantMessage" target="_blank" >llInstantMessage</a>(avatar, "\nThank you for your...\nInvoice ID: "+ invoiceID +" is paid and in wait of the usual confirmations.");
                     if (notifications){
-                        <a href="https://wiki.secondlife.com/wiki/LlOwnerSay" target="_blank" >llOwnerSay</a>("\n"+ osKey2Name(avatar) +" donated "+ price +" "+ currency +"!\nYou have recived: "+ llJsonGetValue(body, ["btcPrice"]) +" "+ defaultPaymentMethod +".\nInvoice ID: "+ invoiceID +" Paid (waiting confirmations).");
+                        <a href="https://wiki.secondlife.com/wiki/LlOwnerSay" target="_blank" >llOwnerSay</a>("\n"+ <a href="http://opensimulator.org/wiki/OsKey2Name" target="_blank" >osKey2Name</a>(avatar) +" donated "+ price +" "+ currency +"!\nYou have recived: "+ llJsonGetValue(body, ["btcPrice"]) +" "+ defaultPaymentMethod +".\nInvoice ID: "+ invoiceID +" Paid (waiting confirmations).");
                     }
                     <span class="commented">/* We return status 200 to BTCPay... */</span>
                     <a href="https://wiki.secondlife.com/wiki/LlHTTPResponse" target="_blank" >llHTTPResponse</a>(id, 200, "");
