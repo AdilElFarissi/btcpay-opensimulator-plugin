@@ -76,7 +76,7 @@ hr.primary {
 
 @media (min-width: 1400px) {
     .col-xxl-constrain {
-        max-width: 800px;
+        max-width: 984px;
     }
 }
 
@@ -115,13 +115,10 @@ a.unobtrusive-link {
     background: var(--btcpay-danger);
     color: var(--btcpay-danger-text);
 }
-.badge-unusual {
+.badge-unusual,
+.badge-processing {
     background: var(--btcpay-warning);
     color: var(--btcpay-warning-text);
-}
-.badge-processing {
-    background: var(--btcpay-info);
-    color: var(--btcpay-info-text);
 }
 .badge-settled {
     background: var(--btcpay-success);
@@ -262,17 +259,6 @@ h2 svg.icon.icon-info {
     }
     .card {
         page-break-inside: avoid;
-    }
-    #markStatusDropdownMenuButton {
-        border: 0;
-        background: transparent;
-        padding: 0 !important;
-        color: inherit;
-        font-weight:  var(--btcpay-font-weight-normal);
-        font-size: var(--btcpay-body-font-size);
-    }
-    #markStatusDropdownMenuButton::after {
-        content: none;
     }
 }
 

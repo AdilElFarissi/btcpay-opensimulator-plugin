@@ -197,11 +197,11 @@ namespace BTCPayServer.Data
             { "GBP", "kraken" },
             { "CHF", "kraken" },
             { "GTQ", "bitpay" },
-            { "COP", "exchangeratehost" },
+            { "COP", "yadio" },
             { "ARS", "yadio" },
             { "JPY", "bitbank" },
             { "TRY", "btcturk" },
-            { "UGX", "exchangeratehost"},
+            { "UGX", "yadio"},
             { "RSD", "bitpay"}
         };
 
@@ -241,7 +241,7 @@ namespace BTCPayServer.Data
         
         [DefaultValue(false)]
         [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
-        public bool PlaySoundOnPayment { get; set; } = false;
+        public bool PlaySoundOnPayment { get; set; }
 
         public string SoundFileId { get; set; }
 
