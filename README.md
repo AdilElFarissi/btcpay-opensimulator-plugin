@@ -6,6 +6,8 @@ More infos about BTCPay Server ([Documentation](https://docs.btcpayserver.org/))
 
 Read more about [OpenSimulator](http://opensimulator.org/wiki/Main_Page).
 
+Proof of Work [Video](https://www.youtube.com/watch?v=NTb8PPp0qco)
+
 <b>How to install the plugin ?</b>
 
 Currently the plugin is available in the BTCPay Plugins Manager in Pre-release phase.
