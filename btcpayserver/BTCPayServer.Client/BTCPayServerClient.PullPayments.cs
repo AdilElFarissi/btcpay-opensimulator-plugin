@@ -20,6 +20,12 @@ namespace BTCPayServer.Client
             return await HandleResponse<PullPaymentData>(response);
         }
 
+        public virtual async Task<RegisterBoltcardResponse> RegisterBoltcard(string pullPaymentId, RegisterBoltcardRequest request, CancellationToken cancellationToken = default)
+        {
+            var response = await _httpClient.SendAsync(CreateHttpRequest($"api/v1/pull-payments/{HttpUtility.UrlEncode(pullPaymentId)}/boltcards", bodyPayload: request, method: HttpMethod.Post), cancellationToken);
+            return await HandleResponse<RegisterBoltcardResponse>(response);
+        }
+
         public virtual async Task<PullPaymentData[]> GetPullPayments(string storeId, bool includeArchived = false, CancellationToken cancellationToken = default)
         {
             Dictionary<string, object> query = new Dictionary<string, object>();
@@ -103,7 +109,7 @@ namespace BTCPayServer.Client
         {
             var response = await _httpClient.SendAsync(
                 CreateHttpRequest(
-                    $"/api/v1/pull-payments/{pullPaymentId}/lnurl",
+                    $"api/v1/pull-payments/{HttpUtility.UrlEncode(pullPaymentId)}/lnurl",
                     method: HttpMethod.Get), cancellationToken);
             return await HandleResponse<PullPaymentLNURL>(response);
         }

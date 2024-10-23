@@ -10,10 +10,9 @@ using BTCPayServer.Client;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
 using BTCPayServer.HostedServices;
-using BTCPayServer.Models;
 using BTCPayServer.Models.WalletViewModels;
 using BTCPayServer.Payments;
-using BTCPayServer.Rating;
+using BTCPayServer.PayoutProcessors;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Rates;
 using Microsoft.AspNetCore.Authorization;
@@ -23,12 +22,11 @@ using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json.Linq;
 using MarkPayoutRequest = BTCPayServer.HostedServices.MarkPayoutRequest;
 using PayoutData = BTCPayServer.Data.PayoutData;
-using PullPaymentData = BTCPayServer.Data.PullPaymentData;
 using StoreData = BTCPayServer.Data.StoreData;
 
 namespace BTCPayServer.Controllers
 {
-    [Authorize(Policy = Policies.CanViewStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
+    [Authorize(Policy = Policies.CanViewPullPayments, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
     [AutoValidateAntiforgeryToken]
     public class UIStorePullPaymentsController : Controller
     {
@@ -40,6 +38,8 @@ namespace BTCPayServer.Controllers
         private readonly ApplicationDbContextFactory _dbContextFactory;
         private readonly BTCPayNetworkJsonSerializerSettings _jsonSerializerSettings;
         private readonly IAuthorizationService _authorizationService;
+        private readonly PayoutProcessorService _payoutProcessorService;
+        private readonly IEnumerable<IPayoutProcessorFactory> _payoutProcessorFactories;
 
         public StoreData CurrentStore
         {
@@ -55,6 +55,8 @@ namespace BTCPayServer.Controllers
             DisplayFormatter displayFormatter,
             PullPaymentHostedService pullPaymentHostedService,
             ApplicationDbContextFactory dbContextFactory,
+            PayoutProcessorService payoutProcessorService,
+            IEnumerable<IPayoutProcessorFactory> payoutProcessorFactories,
             BTCPayNetworkJsonSerializerSettings jsonSerializerSettings,
             IAuthorizationService authorizationService)
         {
@@ -66,8 +68,10 @@ namespace BTCPayServer.Controllers
             _dbContextFactory = dbContextFactory;
             _jsonSerializerSettings = jsonSerializerSettings;
             _authorizationService = authorizationService;
+            _payoutProcessorService = payoutProcessorService;
+            _payoutProcessorFactories = payoutProcessorFactories;
         }
-
+        
         [HttpGet("stores/{storeId}/pull-payments/new")]
         [Authorize(Policy = Policies.CanCreateNonApprovedPullPayments, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
         public async Task<IActionResult> NewPullPayment(string storeId)
@@ -83,7 +87,7 @@ namespace BTCPayServer.Controllers
                     Message = "You must enable at least one payment method before creating a pull payment.",
                     Severity = StatusMessageModel.StatusSeverity.Error
                 });
-                return RedirectToAction(nameof(UIStoresController.Dashboard), "UIStores", new { storeId });
+                return RedirectToAction(nameof(UIStoresController.Index), "UIStores", new { storeId });
             }
 
             return View(new NewPullPaymentModel
@@ -138,11 +142,8 @@ namespace BTCPayServer.Controllers
             }
             if (!ModelState.IsValid)
                 return View(model);
-            if (model.AutoApproveClaims)
-            {
-                model.AutoApproveClaims = (await
-                    _authorizationService.AuthorizeAsync(User, storeId, Policies.CanCreatePullPayments)).Succeeded;
-            }
+            model.AutoApproveClaims = model.AutoApproveClaims &&  (await
+                _authorizationService.AuthorizeAsync(User, storeId, Policies.CanCreatePullPayments)).Succeeded;
             await _pullPaymentService.CreatePullPayment(new HostedServices.CreatePullPayment()
             {
                 Name = model.Name,
@@ -164,6 +165,7 @@ namespace BTCPayServer.Controllers
             return RedirectToAction(nameof(PullPayments), new { storeId = storeId });
         }
 
+        [Authorize(Policy = Policies.CanViewPullPayments, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
         [HttpGet("stores/{storeId}/pull-payments")]
         public async Task<IActionResult> PullPayments(
             string storeId,
@@ -202,7 +204,7 @@ namespace BTCPayServer.Controllers
                     Message = "You must enable at least one payment method before creating a pull payment.",
                     Severity = StatusMessageModel.StatusSeverity.Error
                 });
-                return RedirectToAction(nameof(UIStoresController.Dashboard), "UIStores", new { storeId });
+                return RedirectToAction(nameof(UIStoresController.Index), "UIStores", new { storeId });
             }
 
             var vm = this.ParseListQuery(new PullPaymentsModel
@@ -278,7 +280,7 @@ namespace BTCPayServer.Controllers
             return RedirectToAction(nameof(PullPayments), new { storeId });
         }
 
-        [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
+        [Authorize(Policy = Policies.CanManagePayouts, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
         [HttpPost("stores/{storeId}/pull-payments/payouts")]
         [HttpPost("stores/{storeId}/pull-payments/{pullPaymentId}/payouts")]
         [HttpPost("stores/{storeId}/payouts")]
@@ -289,6 +291,7 @@ namespace BTCPayServer.Controllers
                 return NotFound();
 
             vm.PaymentMethods = await _payoutHandlers.GetSupportedPaymentMethods(HttpContext.GetStoreData());
+            vm.HasPayoutProcessor = await HasPayoutProcessor(storeId, vm.PaymentMethodId);
             var paymentMethodId = PaymentMethodId.Parse(vm.PaymentMethodId);
             var handler = _payoutHandlers
                 .FindPayoutHandler(paymentMethodId);
@@ -372,7 +375,7 @@ namespace BTCPayServer.Controllers
                             break;
                         }
 
-                        if (command == "approve-pay")
+                        if (command == "approve-pay" && !vm.HasPayoutProcessor)
                         {
                             goto case "pay";
                         }
@@ -472,6 +475,7 @@ namespace BTCPayServer.Controllers
 
         [HttpGet("stores/{storeId}/pull-payments/{pullPaymentId}/payouts")]
         [HttpGet("stores/{storeId}/payouts")]
+        [Authorize(Policy = Policies.CanViewPayouts, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
         public async Task<IActionResult> Payouts(
             string storeId, string pullPaymentId, string paymentMethodId, PayoutState payoutState,
             int skip = 0, int count = 50)
@@ -484,19 +488,21 @@ namespace BTCPayServer.Controllers
                     Message = "You must enable at least one payment method before creating a payout.",
                     Severity = StatusMessageModel.StatusSeverity.Error
                 });
-                return RedirectToAction(nameof(UIStoresController.Dashboard), "UIStores", new { storeId });
+                return RedirectToAction(nameof(UIStoresController.Index), "UIStores", new { storeId });
             }
 
+            paymentMethodId ??= paymentMethods.First().ToString();
             var vm = this.ParseListQuery(new PayoutsModel
             {
                 PaymentMethods = paymentMethods,
-                PaymentMethodId = paymentMethodId ?? paymentMethods.First().ToString(),
+                PaymentMethodId = paymentMethodId,
                 PullPaymentId = pullPaymentId,
                 PayoutState = payoutState,
                 Skip = skip,
-                Count = count
+                Count = count,
+                Payouts = new List<PayoutsModel.PayoutModel>(),
+                HasPayoutProcessor = await HasPayoutProcessor(storeId, paymentMethodId)
             });
-            vm.Payouts = new List<PayoutsModel.PayoutModel>();
             await using var ctx = _dbContextFactory.CreateContext();
             var payoutRequest =
                 ctx.Payouts.Where(p => p.StoreDataId == storeId && (p.PullPaymentDataId == null || !p.PullPaymentData.Archived));
@@ -577,6 +583,14 @@ namespace BTCPayServer.Controllers
                 vm.Payouts.Add(m);
             }
             return View(vm);
+        }
+
+        private async Task<bool> HasPayoutProcessor(string storeId, string paymentMethodId)
+        {
+            var pmId = PaymentMethodId.Parse(paymentMethodId);
+            var processors = await _payoutProcessorService.GetProcessors(
+                new PayoutProcessorService.PayoutProcessorQuery { Stores = [storeId], PaymentMethods = [paymentMethodId] });
+            return _payoutProcessorFactories.Any(factory => factory.GetSupportedPaymentMethods().Contains(pmId)) && processors.Any();
         }
     }
 }

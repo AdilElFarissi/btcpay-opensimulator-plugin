@@ -15,7 +15,7 @@ namespace BTCPayServer.Plugins.OpenSimulator.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("BTCPayServer.Plugins.OpenSimulator")
-                .HasAnnotation("ProductVersion", "0.1.1");
+                .HasAnnotation("ProductVersion", "0.1.2");
 
             modelBuilder.Entity("BTCPayServer.Plugins.OpenSimulator.Data.OpenSimulatorData", b =>
                 {
@@ -56,6 +56,9 @@ namespace BTCPayServer.Plugins.OpenSimulator.Migrations
                         .HasDefaultValue(false);
 
                     b.Property<DateTimeOffset>("Timestamp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Secret")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");

@@ -6,6 +6,8 @@ using BTCPayServer.Plugins.OpenSimulator.Models;
 using BTCPayServer.Plugins.OpenSimulator.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BTCPayServer.Plugins.OpenSimulator;
 
@@ -25,8 +27,9 @@ public class UIOpenSimulatorController : Controller
     [HttpGet("{storeId}/plugins/opensim")]
     public async Task<IActionResult> Index()
     {
+        var data = await _OpenSimulatorService.GetAuthorizations(HttpContext.GetCurrentStoreId());
         return View(new OpenSimulatorPageViewModel { 
-            Data = await _OpenSimulatorService.GetAuthorizations(HttpContext.GetCurrentStoreId()),
+            Data = data,
             StoreID = HttpContext.GetCurrentStoreId(),
             StoreDefaultPaymetMethod = HttpContext.GetStoreData().GetDefaultPaymentId().ToString(),
             StoreDefaultCurrency = HttpContext.GetStoreData().GetStoreBlob().DefaultCurrency,

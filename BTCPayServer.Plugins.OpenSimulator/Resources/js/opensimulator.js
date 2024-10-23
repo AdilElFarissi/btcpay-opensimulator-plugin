@@ -1,7 +1,7 @@
 
 
 $("#SectionNav .nav .nav-link").on("click", function(e){
-    if($(this).attr("id") != "SectionNav-Index"){
+    if($(this).attr("id") != "SectionNav-Index" && $(this).attr("id") != "osDocumentation"){
         e.preventDefault();
         $("#SectionNav .nav .nav-link").removeClass("active");
         $(".osPage").hide();
@@ -43,7 +43,7 @@ function getItemHtml(item, action){
 }
 
 function LoadAutorizations(){     
-    if(osModel.length == 0){
+    if(osModel == null || osModel.length == 0){
         $("#authorizedObjects tbody, #pendingAutorizations tbody").html('<tr><td>No data to display.</td></tr>');
     }else{
         var pendingAutorizationsHtml = '';
@@ -120,7 +120,7 @@ $("#authorizationModal").on("hide.bs.modal", () =>{
 });
 
 $("#scriptsNav li").on("click", function(e){
-    if($(this).attr("id") != "SectionNav-Index"){
+    if($(this).attr("id") != "SectionNav-Index" && $(this).attr("id") != "osDocumentation"){
         e.preventDefault();
         $("#scriptsNav li").removeClass("bg-yellow");
         $(".osScriptBox").hide();
@@ -131,7 +131,7 @@ $("#scriptsNav li").on("click", function(e){
 
 function updateTipjarScript (){
     var tipjarHtml = '';
-    tipjarHtml += '/* BTCPay Server Crypto Tip-jar Script for OpenSimulator Plugin v0.1.1.\n\n';
+    tipjarHtml += '/* BTCPay Server Crypto Tip-jar Script for OpenSimulator Plugin v0.1.2.\n\n';
     
     tipjarHtml += 'THIS SCRIPT IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n';
     tipjarHtml += 'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, \n';
@@ -623,7 +623,7 @@ $(".vDisplayCurrency, .rbDisplayCurrency").html('<option value="'+ defaultCurren
 
 function updateVendorScript(){
     var vendorHtml = '';
-    vendorHtml += '/* BTCPay Server Single Product Vendor Script for OpenSimulator Plugin v0.1.1.\n\n';
+    vendorHtml += '/* BTCPay Server Single Product Vendor Script for OpenSimulator Plugin v0.1.2.\n\n';
 
     vendorHtml += 'THIS SCRIPT IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n';
     vendorHtml += 'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, \n';
@@ -1154,7 +1154,7 @@ $("#vDisplayCurrency, #vItemPrice, #vNotificationEmail, #vRedirectURL, #vCheckou
 
 function updateRentalBoxScript(){
     var rentalBoxHtml = '';
-    rentalBoxHtml += '/* BTCPay Server Parcels Rental Script for OpenSimulator Plugin v0.1.1.\n\n';
+    rentalBoxHtml += '/* BTCPay Server Parcels Rental Script for OpenSimulator Plugin v0.1.2.\n\n';
 
     rentalBoxHtml += 'THIS SCRIPT IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n';
     rentalBoxHtml += 'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, \n';

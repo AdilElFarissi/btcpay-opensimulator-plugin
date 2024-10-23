@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer.Plugins.OpenSimulator.Data;
 using BTCPayServer.Plugins.OpenSimulator.Models;
@@ -31,7 +32,8 @@ public class OpenSimulatorService
             ObjectLocation = model.ObjectLocation,
             ObjectURL = model.ObjectURL,
             ObjectAuthorization = false,
-            Timestamp = DateTimeOffset.UtcNow });
+            Timestamp = DateTimeOffset.UtcNow,
+            Secret = NBitcoin.RandomUtils.GetUInt256().ToString().Substring(0, 9) });
             var res = await context.SaveChangesAsync();
             if(res > 0){
                 return true;
@@ -65,6 +67,22 @@ public class OpenSimulatorService
         context.Update(osdModel);
         return await context.SaveChangesAsync();    
     }
+
+public async Task <int> UpdateSecret(OpenSimAuthorizationFormData model)
+    {
+        
+        await using var context = _OpenSimDbContextFactory.CreateContext();
+        OpenSimulatorData osdModel = await context.Authorizations.Where(i => i.Id == model.Id && i.StoreId == model.StoreId && i.AvatarId == model.AvatarId && i.ObjectId == model.ObjectId).FirstOrDefaultAsync();
+            if (string.IsNullOrEmpty(osdModel.Id))
+        {
+            return 0;
+        }
+         
+        osdModel.Secret = NBitcoin.RandomUtils.GetUInt256().ToString().Substring(0, 9);
+        context.Update(osdModel);
+        return await context.SaveChangesAsync();    
+    }
+
     public async Task<List<OpenSimulatorData>> GetDestinationsGuide()
     {
         await using var context = _OpenSimDbContextFactory.CreateContext();

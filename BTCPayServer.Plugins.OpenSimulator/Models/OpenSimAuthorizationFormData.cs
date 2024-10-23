@@ -20,6 +20,8 @@ public class OpenSimAuthorizationFormData
 
     public DateTimeOffset Timestamp { get; set; }
 
+    public string Secret { get; set; }
+
      public string Task { get; set; }
     
 }

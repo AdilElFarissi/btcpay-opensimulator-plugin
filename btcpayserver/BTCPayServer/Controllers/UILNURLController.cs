@@ -91,8 +91,15 @@ namespace BTCPayServer
             _invoiceActivator = invoiceActivator;
         }
 
+        [EnableCors(CorsPolicies.All)]
         [HttpGet("withdraw/pp/{pullPaymentId}")]
-        public async Task<IActionResult> GetLNURLForPullPayment(string cryptoCode, string pullPaymentId, string pr, CancellationToken cancellationToken)
+        public Task<IActionResult> GetLNURLForPullPayment(string cryptoCode, string pullPaymentId, [FromQuery] string pr, CancellationToken cancellationToken)
+        {
+            return GetLNURLForPullPayment(cryptoCode, pullPaymentId, pr, pullPaymentId, cancellationToken);
+        }
+
+        [NonAction]
+        internal async Task<IActionResult> GetLNURLForPullPayment(string cryptoCode, string pullPaymentId, string pr, string k1, CancellationToken cancellationToken)
         {
             var network = _btcPayNetworkProvider.GetNetwork<BTCPayNetwork>(cryptoCode);
             if (network is null || !network.SupportLightning)
@@ -119,7 +126,7 @@ namespace BTCPayServer
             var request = new LNURLWithdrawRequest
             {
                 MaxWithdrawable = LightMoney.FromUnit(remaining, unit),
-                K1 = pullPaymentId,
+                K1 = k1,
                 BalanceCheck = new Uri(Request.GetCurrentUrl()),
                 CurrentBalance = LightMoney.FromUnit(remaining, unit),
                 MinWithdrawable =
@@ -292,11 +299,11 @@ namespace BTCPayServer
                 return NotFound();
             }
 
-            var createInvoice = new CreateInvoiceRequest()
+            var createInvoice = new CreateInvoiceRequest
             {
-                Amount =  item?.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Topup? null:  item?.Price,
+                Amount =  item?.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Topup ? null : item?.Price,
                 Currency = currencyCode,
-                Checkout = new InvoiceDataBase.CheckoutOptions()
+                Checkout = new InvoiceDataBase.CheckoutOptions
                 {
                     RedirectURL = app.AppType switch
                     {
@@ -308,6 +315,7 @@ namespace BTCPayServer
                 AdditionalSearchTerms = new[] { AppService.GetAppSearchTerm(app) }
             };
 
+            var allowOverpay = item?.PriceType is not ViewPointOfSaleViewModel.ItemPriceType.Fixed;
             var invoiceMetadata = new InvoiceMetadata { OrderId = AppService.GetRandomOrderId() };
             if (item != null)
             {
@@ -322,7 +330,7 @@ namespace BTCPayServer
                 store.GetStoreBlob(),
                 createInvoice,
                 additionalTags: new List<string> { AppService.GetAppInternalTag(appId) },
-                allowOverpay: false);
+                allowOverpay: allowOverpay);
         }
 
         public class EditLightningAddressVM
@@ -369,7 +377,7 @@ namespace BTCPayServer
             if (string.IsNullOrEmpty(username))
                 return NotFound("Unknown username");
             
-            LNURLPayRequest lnurlRequest = null;
+            LNURLPayRequest lnurlRequest;
             
             // Check core and fall back to lookup Lightning Address via plugins
             var lightningAddressSettings = await _lightningAddressService.ResolveByAddress(username);
@@ -491,7 +499,7 @@ namespace BTCPayServer
                 });
         }
 
-        private async Task<IActionResult> GetLNURLRequest(
+        public async Task<IActionResult> GetLNURLRequest(
             string cryptoCode,
             Data.StoreData store,
             Data.StoreBlob blob,
@@ -518,7 +526,9 @@ namespace BTCPayServer
                 return this.CreateAPIError(null, e.Message);
             }
             lnurlRequest = await CreateLNUrlRequestFromInvoice(cryptoCode, i, store, blob, lnurlRequest, lnUrlMetadata, allowOverpay);
-            return lnurlRequest is null ? NotFound() : Ok(lnurlRequest);
+            return lnurlRequest is null
+                ? BadRequest(new LNUrlStatusResponse { Status = "ERROR", Reason = "Unable to create LNURL request." })
+                : Ok(lnurlRequest);
         }
 
         private async Task<LNURLPayRequest> CreateLNUrlRequestFromInvoice(

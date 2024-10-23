@@ -104,6 +104,19 @@ namespace BTCPayServer.Services.Altcoins.Monero.UI
                 new SelectListItem(
                     $"{account.AccountIndex} - {(string.IsNullOrEmpty(account.Label) ? "No label" : account.Label)}",
                     account.AccountIndex.ToString(CultureInfo.InvariantCulture)));
+
+            var settlementThresholdChoice = MoneroLikeSettlementThresholdChoice.StoreSpeedPolicy;
+            if (settings != null && settings.InvoiceSettledConfirmationThreshold is { } confirmations)
+            {
+                settlementThresholdChoice = confirmations switch
+                {
+                    0 => MoneroLikeSettlementThresholdChoice.ZeroConfirmation,
+                    1 => MoneroLikeSettlementThresholdChoice.AtLeastOne,
+                    10 => MoneroLikeSettlementThresholdChoice.AtLeastTen,
+                    _ => MoneroLikeSettlementThresholdChoice.Custom
+                };
+            }
+
             return new MoneroLikePaymentMethodViewModel()
             {
                 WalletFileFound = System.IO.File.Exists(fileAddress),
@@ -114,7 +127,13 @@ namespace BTCPayServer.Services.Altcoins.Monero.UI
                 CryptoCode = cryptoCode,
                 AccountIndex = settings?.AccountIndex ?? accountsResponse?.SubaddressAccounts?.FirstOrDefault()?.AccountIndex ?? 0,
                 Accounts = accounts == null ? null : new SelectList(accounts, nameof(SelectListItem.Value),
-                    nameof(SelectListItem.Text))
+                    nameof(SelectListItem.Text)),
+                SettlementConfirmationThresholdChoice = settlementThresholdChoice,
+                CustomSettlementConfirmationThreshold =
+                    settings != null &&
+                    settlementThresholdChoice is MoneroLikeSettlementThresholdChoice.Custom
+                        ? settings.InvoiceSettledConfirmationThreshold
+                        : null
             };
         }
 
@@ -230,10 +249,28 @@ namespace BTCPayServer.Services.Altcoins.Monero.UI
                         }
                     }
 
+                    try
+                    {
+                        var response = await _MoneroRpcProvider.WalletRpcClients[cryptoCode].SendCommandAsync<OpenWalletRequest, OpenWalletResponse>("open_wallet", new OpenWalletRequest
+                        {
+                            Filename = "wallet",
+                            Password = viewModel.WalletPassword
+                        });
+                        if (response?.Error != null)
+                        {
+                            throw new Exception(response.Error.Message);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        ModelState.AddModelError(nameof(viewModel.AccountIndex), $"Could not open the wallet: {ex.Message}");
+                        return View(viewModel);
+                    }
+
                     return RedirectToAction(nameof(GetStoreMoneroLikePaymentMethod), new
                     {
                         cryptoCode,
-                        StatusMessage = "View-only wallet files uploaded. If they are valid the wallet will soon become available."
+                        StatusMessage = "View-only wallet files uploaded. The wallet will soon become available."
 
                     });
                 }
@@ -250,6 +287,8 @@ namespace BTCPayServer.Services.Altcoins.Monero.UI
                 vm.Enabled = viewModel.Enabled;
                 vm.NewAccountLabel = viewModel.NewAccountLabel;
                 vm.AccountIndex = viewModel.AccountIndex;
+                vm.SettlementConfirmationThresholdChoice = viewModel.SettlementConfirmationThresholdChoice;
+                vm.CustomSettlementConfirmationThreshold = viewModel.CustomSettlementConfirmationThreshold;
                 return View(vm);
             }
 
@@ -258,7 +297,15 @@ namespace BTCPayServer.Services.Altcoins.Monero.UI
             storeData.SetSupportedPaymentMethod(new MoneroSupportedPaymentMethod()
             {
                 AccountIndex = viewModel.AccountIndex,
-                CryptoCode = viewModel.CryptoCode
+                CryptoCode = viewModel.CryptoCode,
+                InvoiceSettledConfirmationThreshold = viewModel.SettlementConfirmationThresholdChoice switch
+                {
+                    MoneroLikeSettlementThresholdChoice.ZeroConfirmation => 0,
+                    MoneroLikeSettlementThresholdChoice.AtLeastOne => 1,
+                    MoneroLikeSettlementThresholdChoice.AtLeastTen => 10,
+                    MoneroLikeSettlementThresholdChoice.Custom when viewModel.CustomSettlementConfirmationThreshold is { } custom => custom,
+                    _ => null
+                }
             });
 
             blob.SetExcluded(new PaymentMethodId(viewModel.CryptoCode, MoneroPaymentType.Instance), !viewModel.Enabled);
@@ -297,7 +344,7 @@ namespace BTCPayServer.Services.Altcoins.Monero.UI
             public IEnumerable<MoneroLikePaymentMethodViewModel> Items { get; set; }
         }
 
-        public class MoneroLikePaymentMethodViewModel
+        public class MoneroLikePaymentMethodViewModel : IValidatableObject
         {
             public MoneroRPCProvider.MoneroLikeSummary Summary { get; set; }
             public string CryptoCode { get; set; }
@@ -309,8 +356,39 @@ namespace BTCPayServer.Services.Altcoins.Monero.UI
             public bool WalletFileFound { get; set; }
             [Display(Name = "View-Only Wallet File")]
             public IFormFile WalletFile { get; set; }
+            [Display(Name = "Wallet Keys File")]
             public IFormFile WalletKeysFile { get; set; }
+            [Display(Name = "Wallet Password")]
             public string WalletPassword { get; set; }
+            [Display(Name = "Consider the invoice settled when the payment transaction …")]
+            public MoneroLikeSettlementThresholdChoice SettlementConfirmationThresholdChoice { get; set; }
+            [Display(Name = "Required Confirmations"), Range(0, 100)]
+            public long? CustomSettlementConfirmationThreshold { get; set; }
+
+            public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+            {
+                if (SettlementConfirmationThresholdChoice is MoneroLikeSettlementThresholdChoice.Custom
+                    && CustomSettlementConfirmationThreshold is null)
+                {
+                    yield return new ValidationResult(
+                        "You must specify the number of required confirmations when using a custom threshold.",
+                        new[] { nameof(CustomSettlementConfirmationThreshold) });
+                }
+            }
+        }
+
+        public enum MoneroLikeSettlementThresholdChoice
+        {
+            [Display(Name = "Store Speed Policy", Description = "Use the store's speed policy")]
+            StoreSpeedPolicy,
+            [Display(Name = "Zero Confirmation", Description = "Is unconfirmed")]
+            ZeroConfirmation,
+            [Display(Name = "At Least One", Description = "Has at least 1 confirmation")]
+            AtLeastOne,
+            [Display(Name = "At Least Ten", Description = "Has at least 10 confirmations")]
+            AtLeastTen,
+            [Display(Name = "Custom", Description = "Custom")]
+            Custom
         }
     }
 }

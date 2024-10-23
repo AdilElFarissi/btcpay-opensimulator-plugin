@@ -29,7 +29,8 @@ namespace BTCPayServer.Plugins.OpenSimulator.Migrations
                     ObjectLocation = table.Column<string>(nullable: false),
                     ObjectURL = table.Column<string>(nullable: false),
                     ObjectAuthorization = table.Column<bool>(nullable: false),
-                    Timestamp = table.Column<DateTimeOffset>(nullable: false)
+                    Timestamp = table.Column<DateTimeOffset>(nullable: false),
+                    Secret = table.Column<string>(nullable: false)
                 },
                 constraints: table =>
                 {
@@ -39,9 +40,9 @@ namespace BTCPayServer.Plugins.OpenSimulator.Migrations
 
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-           /* migrationBuilder.DropTable(
+            migrationBuilder.DropTable(
                 name: "Authorizations",
-                schema: "BTCPayServer.Plugins.OpenSimulator");*/
+                schema: "BTCPayServer.Plugins.OpenSimulator");
         }
     }
 }

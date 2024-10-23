@@ -41,6 +41,7 @@ namespace BTCPayServer.Controllers.Greenfield
         private readonly RateFetcher _rateProvider;
         private readonly InvoiceActivator _invoiceActivator;
         private readonly ApplicationDbContextFactory _dbContextFactory;
+        private readonly IAuthorizationService _authorizationService;
 
         public LanguageService LanguageService { get; }
 
@@ -48,7 +49,9 @@ namespace BTCPayServer.Controllers.Greenfield
             LinkGenerator linkGenerator, LanguageService languageService, BTCPayNetworkProvider btcPayNetworkProvider,
             CurrencyNameTable currencyNameTable, RateFetcher rateProvider,
             InvoiceActivator invoiceActivator,
-            PullPaymentHostedService pullPaymentService, ApplicationDbContextFactory dbContextFactory)
+            PullPaymentHostedService pullPaymentService, 
+            ApplicationDbContextFactory dbContextFactory, 
+            IAuthorizationService authorizationService)
         {
             _invoiceController = invoiceController;
             _invoiceRepository = invoiceRepository;
@@ -59,6 +62,7 @@ namespace BTCPayServer.Controllers.Greenfield
             _invoiceActivator = invoiceActivator;
             _pullPaymentService = pullPaymentService;
             _dbContextFactory = dbContextFactory;
+            _authorizationService = authorizationService;
             LanguageService = languageService;
         }
 
@@ -350,7 +354,7 @@ namespace BTCPayServer.Controllers.Greenfield
             return this.CreateValidationError(ModelState);
         }
 
-        [Authorize(Policy = Policies.CanModifyStoreSettings,
+        [Authorize(Policy = Policies.CanCreateNonApprovedPullPayments,
             AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
         [HttpPost("~/api/v1/stores/{storeId}/invoices/{invoiceId}/refund")]
         public async Task<IActionResult> RefundInvoice(
@@ -397,6 +401,14 @@ namespace BTCPayServer.Controllers.Greenfield
 
             var accounting = invoicePaymentMethod.Calculate();
             var cryptoPaid = accounting.Paid;
+            var dueAmount = accounting.TotalDue;
+
+            // If no payment, but settled and marked, assume it has been fully paid
+            if (cryptoPaid is 0 && invoice is { Status: InvoiceStatusLegacy.Confirmed or InvoiceStatusLegacy.Complete, ExceptionStatus: InvoiceExceptionStatus.Marked })
+            {
+                cryptoPaid = accounting.TotalDue;
+                dueAmount = 0;
+            }
             var cdCurrency = _currencyNameTable.GetCurrencyData(invoice.Currency, true);
             var paidCurrency = Math.Round(cryptoPaid * invoicePaymentMethod.Rate, cdCurrency.Divisibility);
             var rateResult = await _rateProvider.FetchRate(
@@ -464,7 +476,6 @@ namespace BTCPayServer.Controllers.Greenfield
                         return this.CreateValidationError(ModelState);
                     }
                     
-                    var dueAmount = accounting.TotalDue;
                     createPullPayment.Currency = cryptoCode;
                     createPullPayment.Amount = Math.Round(paidAmount - dueAmount, appliedDivisibility);
                     createPullPayment.AutoApproveClaims = true;
@@ -512,10 +523,11 @@ namespace BTCPayServer.Controllers.Greenfield
                 createPullPayment.Amount = Math.Round(createPullPayment.Amount - reduceByAmount, appliedDivisibility);
             }
 
+            createPullPayment.AutoApproveClaims = createPullPayment.AutoApproveClaims && (await _authorizationService.AuthorizeAsync(User, createPullPayment.StoreId ,Policies.CanCreatePullPayments)).Succeeded;
             var ppId = await _pullPaymentService.CreatePullPayment(createPullPayment);
 
             await using var ctx = _dbContextFactory.CreateContext();
-            (await ctx.Invoices.FindAsync(new[] { invoice.Id }, cancellationToken))!.CurrentRefundId = ppId;
+
             ctx.Refunds.Add(new RefundData
             {
                 InvoiceDataId = invoice.Id,
@@ -524,7 +536,6 @@ namespace BTCPayServer.Controllers.Greenfield
             await ctx.SaveChangesAsync(cancellationToken);
 
             var pp = await _pullPaymentService.GetPullPayment(ppId, false);
-
             return this.Ok(CreatePullPaymentData(pp));
         }
 
