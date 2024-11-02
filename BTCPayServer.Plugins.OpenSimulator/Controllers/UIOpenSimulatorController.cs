@@ -28,10 +28,11 @@ public class UIOpenSimulatorController : Controller
     public async Task<IActionResult> Index()
     {
         var data = await _OpenSimulatorService.GetAuthorizations(HttpContext.GetCurrentStoreId());
+
         return View(new OpenSimulatorPageViewModel { 
             Data = data,
             StoreID = HttpContext.GetCurrentStoreId(),
-            StoreDefaultPaymetMethod = HttpContext.GetStoreData().GetDefaultPaymentId().ToString(),
+            StoreDefaultPaymetMethod = HttpContext.GetStoreData().GetDefaultPaymentId()?.ToStringNormalized(),
             StoreDefaultCurrency = HttpContext.GetStoreData().GetStoreBlob().DefaultCurrency,
             ServerIP = HttpContext.Connection.LocalIpAddress.ToString()
             });
