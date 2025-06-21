@@ -3,15 +3,16 @@
 @using Microsoft.AspNetCore.Mvc.TagHelpers
 @using Newtonsoft.Json.Linq
 @using BTCPayServer.Client
+@using BTCPayServer.Client.Models
 @inject DisplayFormatter DisplayFormatter
 @model BTCPayServer.Plugins.PointOfSale.Models.ViewPointOfSaleViewModel
 @functions {
-    private string GetItemPriceFormatted(ViewPointOfSaleViewModel.Item item)
+    private string GetItemPriceFormatted(AppItem item)
     {
-        if (item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Topup) return "any amount";
+        if (item.PriceType == AppItemPriceType.Topup) return "any amount";
         if (item.Price == 0) return "free";
         var formatted = DisplayFormatter.Currency(item.Price ?? 0, Model.CurrencyCode, DisplayFormatter.CurrencyFormat.Symbol);
-        return item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Minimum ? $"{formatted} minimum" : formatted;
+        return item.PriceType == AppItemPriceType.Minimum ? $"{formatted} minimum" : formatted;
     }
 }
 <form id="app" method="post" asp-action="ViewPointOfSale" asp-route-appId="@Model.AppId" asp-antiforgery="false" v-on:submit="handleFormSubmit" class="d-flex flex-column gap-4 my-auto" v-cloak>
@@ -21,7 +22,8 @@
     <input type="hidden" name="posdata" :value="posdata">
     <div ref="display" class="d-flex flex-column align-items-center px-4 mb-auto">
         <div class="fw-semibold text-muted" id="Currency">{{currencyCode}}</div>
-        <div class="fw-bold lh-sm" ref="amount" v-bind:style="{ fontSize: `${fontSize}px` }" id="Amount">{{ formatCurrency(total, false) }}</div>
+        <div class="fw-bold lh-sm" ref="amount" v-bind:style="{ fontSize: `${fontSize}px` }" id="Amount">{{ formatCurrency(lastAmount, false) }}</div>
+        <div class="fw-bold lh-sm" ref="total" v-if="totalNumeric !== parseFloat(lastAmount)" v-bind:style="{ fontSize: `${fontSize/3}px` }" id="Total">Total: {{ formatCurrency(totalNumeric, true) }}</div>
         <div class="text-muted text-center mt-2" id="Calculation">{{ calculation }}</div>
     </div>
     <div id="ModeTabs" class="tab-content mb-n2" v-if="showDiscount || enableTips">
@@ -60,34 +62,40 @@
     </div>
     <div id="ModeTablist" class="nav btcpay-pills align-items-center justify-content-center mb-n2 pb-1" role="tablist" v-if="modes.length > 1">
         <template v-for="m in modes" :key="m.value">
-            <input :id="`ModeTablist-${m.type}`" name="mode" :value="m.type" type="radio" role="tab" data-bs-toggle="pill" :data-bs-target="`#Mode-${m.type}`" :disabled="m.type != 'amounts' && amountNumeric == 0" :aria-controls="`Mode-${m.type}`" :aria-selected="mode === m.type" :checked="mode === m.type" v-on:click="mode = m.type">
+            <input :id="`ModeTablist-${m.type}`" name="mode" :value="m.type" type="radio" role="tab" data-bs-toggle="pill" :data-bs-target="`#Mode-${m.type}`" :disabled="m.type != 'amounts' && summary.priceTaxExcluded == 0" :aria-controls="`Mode-${m.type}`" :aria-selected="mode === m.type" :checked="mode === m.type" v-on:click="mode = m.type">
             <label :for="`ModeTablist-${m.type}`">{{ m.title }}</label>
         </template>
     </div>
     <div class="keypad">
-        <button v-for="k in keys" :key="k" :disabled="k === '+' && mode !== 'amounts'" v-on:click.prevent="keyPressed(k)" v-on:dblclick.prevent="doubleClick(k)" type="button" class="btn btn-secondary btn-lg" :data-key="k">{{ k }}</button>
+        <button v-for="k in keys" :key="k" :disabled="k === '+' && mode !== 'amounts'" v-on:click.prevent="keyPressed(k)" v-on:dblclick.prevent="doubleClick(k)" type="button" class="btn btn-secondary btn-lg" :data-key="k">
+            <template v-if="k === 'C'"><vc:icon symbol="keypad-clear"/></template>
+            <template v-else-if="k === '+'"><vc:icon symbol="keypad-plus"/></template>
+            <template v-else>{{ k }}</template>
+        </button>
     </div>
-    <button class="btn btn-lg btn-primary mx-3" type="submit" :disabled="payButtonLoading || totalNumeric <= 0" id="pay-button">
+    <button class="btn btn-lg btn-primary mx-3" type="submit" :disabled="payButtonLoading || (totalNumeric <= 0 && posOrder.itemLines.length === 0)" id="pay-button">
         <div v-if="payButtonLoading" class="spinner-border spinner-border-sm" id="pay-button-spinner" role="status">
-            <span class="visually-hidden">Loading...</span>
+            <span class="visually-hidden" text-translate="true">Loading...</span>
         </div>
-        <template v-else>Charge</template>
+        <template v-else>
+            <span text-translate="true">Charge</span>
+        </template>
     </button>
     <partial name="PointOfSale/Public/RecentTransactions" model="Model"/>
-    <button type="button" class="btn btn-link p-1" data-bs-toggle="modal" data-bs-target="#RecentTransactions" id="RecentTransactionsToggle" permission="@Policies.CanViewInvoices">
-        <vc:icon symbol="invoice-2 "/>
+    <button type="button" class="btn btn-light rounded-circle" data-bs-toggle="modal" data-bs-target="#RecentTransactions" id="RecentTransactionsToggle" permission="@Policies.CanViewInvoices">
+        <vc:icon symbol="nav-transactions"/>
     </button>
-    <button type="button" class="btn btn-link p-1" data-bs-toggle="offcanvas" data-bs-target="#ItemsListOffcanvas" id="ItemsListToggle" aria-controls="ItemsList" v-if="showItems">
-        <vc:icon symbol="menu"/>
+    <button type="button" class="btn btn-light rounded-circle" data-bs-toggle="offcanvas" data-bs-target="#ItemsListOffcanvas" id="ItemsListToggle" aria-controls="ItemsList" v-if="showItems">
+        <vc:icon symbol="nav-products"/>
     </button>
     <div class="offcanvas offcanvas-end" data-bs-backdrop="static" tabindex="-1"  id="ItemsListOffcanvas" aria-labelledby="ItemsListToggle" v-if="showItems">
-        <div class="offcanvas-header flex-wrap p-3">
+        <div class="offcanvas-header justify-content-between flex-wrap p-3">
             <h5 class="offcanvas-title" id="offcanvasExampleLabel">Products</h5>
             <button type="button" class="btn btn-sm rounded-pill" :class="{ 'btn-primary': cart.length > 0, 'btn-outline-secondary': cart.length === 0}" data-bs-dismiss="offcanvas" v-text="cart.length > 0 ? 'Apply' : 'Close'"></button>
             @if (Model.ShowSearch)
             {
                 <div class="w-100 mt-3">
-                    <input id="SearchTerm" class="form-control rounded-pill" placeholder="Search…" v-model="searchTerm" v-if="showSearch">
+                    <input id="SearchTerm" class="form-control rounded-pill" placeholder="@StringLocalizer["Search…"]" v-model="searchTerm" v-if="showSearch">
                 </div>
             }
             @if (Model.ShowCategories)
@@ -109,7 +117,7 @@
                     var item = Model.Items[index];
                     var formatted = GetItemPriceFormatted(item);
                     var inStock = item.Inventory is null or > 0;
-                    var displayed = item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Fixed && inStock ? "true" : "false";
+                    var displayed = item.PriceType == AppItemPriceType.Fixed && inStock ? "true" : "false";
                     var categories = new JArray(item.Categories ?? new object[] { });
                     <div class="posItem p-3" :class="{ 'posItem--inStock': inStock(@index), 'posItem--displayed': @displayed }" data-index="@index" data-search="@Safe.RawEncode(item.Title + " " + item.Description)" data-categories='@Safe.Json(categories)' v-show="@displayed">
                         <div class="d-flex align-items-start w-100 gap-3">
@@ -122,7 +130,7 @@
                             <div class="d-flex flex-column gap-2">
                                 <h5 class="card-title m-0">@Safe.Raw(item.Title)</h5>
                                 <div class="d-flex gap-2 align-items-center">
-                                    @if (item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Topup || item.Price == 0)
+                                    @if (item.PriceType == AppItemPriceType.Topup || item.Price == 0)
                                     {
                                         <span class="fw-semibold badge text-bg-info">@Safe.Raw(char.ToUpper(formatted[0]) + formatted[1..])</span>
                                     }
@@ -132,8 +140,15 @@
                                     }
                                     @if (item.Inventory.HasValue)
                                     {
-                                        <span class="badge text-bg-warning inventory" v-text="inventoryText(@index)">
-                                            @(item.Inventory > 0 ? $"{item.Inventory} left" : "Sold out")
+                                        <span class="badge text-bg-warning inventory">
+                                            @if (item.Inventory > 0)
+                                            {
+                                                <span>@ViewLocalizer["{0} left", item.Inventory.ToString()]</span>
+                                            }
+                                            else
+                                            {
+                                                <span text-translate="true">Sold out</span>
+                                            }
                                         </span>
                                     }
                                 </div>

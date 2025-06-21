@@ -11,8 +11,6 @@ using BTCPayServer.Models.StoreReportsViewModels;
 using BTCPayServer.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Internal;
 using System.Threading;
 using Newtonsoft.Json.Linq;
 
@@ -72,7 +70,7 @@ public partial class UIReportsController : Controller
         var vm = new StoreReportsViewModel
         {
             InvoiceTemplateUrl = Url.Action(nameof(UIInvoiceController.Invoice), "UIInvoice", new { invoiceId = "INVOICE_ID" }),
-            ExplorerTemplateUrls = TransactionLinkProviders.ToDictionary(p => p.Key.CryptoCode, p => p.Value.BlockExplorerLink?.Replace("{0}", "TX_ID")),
+            ExplorerTemplateUrls = TransactionLinkProviders.ToDictionary(p => p.Key, p => p.Value.BlockExplorerLink?.Replace("{0}", "TX_ID")),
             Request = new StoreReportRequest { ViewName = viewName ?? "Payments" },
             AvailableViews = ReportService.ReportProviders
                 .Values

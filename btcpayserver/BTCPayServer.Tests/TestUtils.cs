@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using NBitcoin;
 using OpenQA.Selenium;
 using Xunit;
 using Xunit.Sdk;
@@ -20,10 +19,10 @@ namespace BTCPayServer.Tests
 #else
         public const int TestTimeout = 90_000;
 #endif
-        public static DirectoryInfo TryGetSolutionDirectoryInfo(string currentPath = null)
+        public static DirectoryInfo TryGetSolutionDirectoryInfo()
         {
-            var directory = new DirectoryInfo(
-                currentPath ?? Directory.GetCurrentDirectory());
+            var btcPayDirectory = ((OutputPathAttribute)typeof(TestUtils).Assembly.GetCustomAttributes(typeof(OutputPathAttribute), true)[0]).BuiltPath;
+            var directory = new DirectoryInfo(btcPayDirectory);
             while (directory != null && !directory.GetFiles("*.sln").Any())
             {
                 directory = directory.Parent;
@@ -31,10 +30,15 @@ namespace BTCPayServer.Tests
             return directory;
         }
 
+        static TestUtils()
+        {
+            TestDirectory = AppContext.BaseDirectory;
+        }
+        public static readonly string TestDirectory;
 
         public static string GetTestDataFullPath(string relativeFilePath)
         {
-            var directory = new DirectoryInfo(Directory.GetCurrentDirectory());
+            var directory = new DirectoryInfo(TestDirectory);
             while (directory != null && !directory.GetFiles("*.csproj").Any())
             {
                 directory = directory.Parent;

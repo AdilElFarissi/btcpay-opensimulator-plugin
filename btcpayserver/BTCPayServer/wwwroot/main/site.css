@@ -1,6 +1,6 @@
 /* Variables */
 :root {
-    --chart-main-rgb: 68, 164, 49;
+    --chart-main-rgb: var(--btcpay-primary-rgb);
     --chart-series-a-rgb: var(--chart-main-rgb);
     --chart-series-b-rgb: 245, 0, 0;
     --chart-series-c-rgb: 0, 109, 242;
@@ -27,6 +27,12 @@
     visibility: hidden;
 }
 
+/* Iframe context */
+[data-context="btcpayapp"] #Checkout #StoreLink,
+[data-context="btcpayapp"] #Checkout .store-footer {
+    display: none;
+}
+
 /* Form validation messages should match alert styles */
 .validation-summary-errors {
     padding: .75rem 1rem;
@@ -45,6 +51,13 @@
 .no-marker > ul {
     list-style-type: none;
     padding-left: 0;
+}
+
+.profile-picture {
+    height: var(--profile-picture-size, 2.1rem);
+    width: var(--profile-picture-size, 2.1rem);
+    border-radius: 50%;
+    object-fit: cover;
 }
 
 /* General and site-wide Bootstrap modifications */
@@ -70,7 +83,7 @@ hr.primary {
 }
 
 .input-group-clear .icon {
-    --btn-icon-size: .65rem;
+    --icon-size: .65rem;
 }
 
 .note-editable {
@@ -111,16 +124,19 @@ a.unobtrusive-link {
     text-decoration: inherit;
 }
 
-[aria-expanded] > svg.icon-caret-down {
-    flex-shrink: 0;
-    width: 24px;
-    height: 24px;
+[aria-expanded] > .icon-caret-down {
+    --icon-size: 1.5rem;
     margin-left: auto;
     transition: transform 0.2s ease-in-out;
 }
 
-[aria-expanded="true"] > svg.icon-caret-down {
+[aria-expanded="true"] > .icon-caret-down {
     transform: rotate(-180deg);
+}
+
+/* Time format button */
+.switch-time-format {
+    line-height: 1;
 }
 
 /* Icon and text, used for warnings of additional info text. Adjust spacing and color via utility classes. */
@@ -160,24 +176,24 @@ a.unobtrusive-link {
 }
 
 /* Info icons in main headline */
-svg.icon.icon-info {
+.icon.icon-info {
     position: relative;
     top: -.05em;
     color: var(--btcpay-neutral-500);
 }
 
-svg.icon.icon-info:hover {
+.icon.icon-info:hover {
     color: var(--btcpay-primary);
 }
 
-h2 svg.icon.icon-info {
+h2 .icon.icon-info {
     width: 1.2rem;
     height: 1.2rem;
     top: -.0125em;
 }
 
-#descriptor p {
-    max-width: 40em;
+#mainContent section p {
+    max-width: 46em;
 }
 
 /* Invoices */
@@ -292,7 +308,9 @@ h2 svg.icon.icon-info {
     .card {
         page-break-inside: avoid;
     }
-    .actions-col {
+    .actions-col,
+    .sticky-header > div:last-child,
+    .sticky-header > .btn:last-child {
         display: none;
     }
 }
@@ -308,14 +326,7 @@ h2 svg.icon.icon-info {
 }
 
 /* Icons */
-svg.icon {
-    display: inline-block;
-    width: 1rem;
-    height: 1rem;
-    flex-shrink: 0 !important;
-}
-
-svg.icon-note {
+.icon-note {
   color: var(--btcpay-neutral-500);
 }
 
@@ -665,8 +676,7 @@ label.btcpay-list-select-item:hover {
     }
 }
 .btcpay-list-select-item .icon {
-    width: 1.5rem;
-    height: 1.5rem;
+    --icon-size: 1.5rem;
     margin: 0 var(--btcpay-space-s);
 }
 input:checked + label.btcpay-list-select-item {
@@ -728,6 +738,8 @@ input:checked + label.btcpay-list-select-item {
     .tile {
         --tile-padding: 1rem;
         --tile-border-radius: none;
+        margin-left: calc(var(--wrap-padding-horizontal) * -1);
+        margin-right: calc(var(--wrap-padding-horizontal) * -1);
     }
 }
 
@@ -936,6 +948,7 @@ input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
     margin: 0;
     padding: 1px var(--btcpay-space-s);
     text-align: left;
+    word-break: break-word;
 }
 
 .transaction-label a {
@@ -957,14 +970,14 @@ input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
 }
 
 .transaction-label:focus a,
-.transaction-label:focus .transaction-label-info svg.icon,
-.transaction-label:focus .transaction-label-action svg.icon,
+.transaction-label:focus .transaction-label-info .icon,
+.transaction-label:focus .transaction-label-action .icon,
 .transaction-label:hover a,
-.transaction-label:hover .transaction-label-info svg.icon,
-.transaction-label:hover .transaction-label-action svg.icon,
+.transaction-label:hover .transaction-label-info .icon,
+.transaction-label:hover .transaction-label-action .icon,
 .transaction-label.active a,
-.transaction-label.active .transaction-label-info svg.icon,
-.transaction-label.active .transaction-label-action svg.icon {
+.transaction-label.active .transaction-label-info .icon,
+.transaction-label.active .transaction-label-action .icon {
     color: var(--label-fg);
 }
 
@@ -980,7 +993,7 @@ input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
     flex: 0 0 var(--button-size);
 }
 
-.transaction-label svg.icon {
+.transaction-label .icon {
     display: block;
     position: static;
     width: 100%;
@@ -995,7 +1008,7 @@ input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
     padding: 0;
 }
 
-.transaction-label-action svg.icon {
+.transaction-label-action .icon {
     transform: scale(1.725);
 }
 
@@ -1051,7 +1064,7 @@ input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
 }
 
 .truncate-center button.btn .icon {
-    --btn-icon-size: 1em;
+    --icon-size: 1em;
 }
 
 .truncate-center--elastic .truncate-center-truncated {
@@ -1066,8 +1079,8 @@ input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
     padding-right: 3px;
 }
 
-.truncate-center.form-control-plaintext button.btn .icon {
-    --btn-icon-size: 1.25em;
+.truncate-center.form-control-plaintext .icon {
+    --icon-size: 1.25em;
 }
 
 @media screen {
@@ -1079,19 +1092,38 @@ input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
     }
     
     .truncate-center-text {
-        display: none;
+        color: transparent;
+        position: absolute;
+        pointer-events: none;
     }
 }
 
 /* Copy */
-[data-clipboard],
-[data-clipboard] input[readonly] {
+.clipboard-button, .clipboard-button input[readonly] {
     cursor: copy;
 }
-[data-clipboard-hover] {
+
+.clipboard-button.btn-link, .clipboard-button.btn-link input[readonly] {
+    color: var(--btcpay-body-text-muted);
+}
+
+.clipboard-button:hover {
+    color: rgba(var(--btcpay-body-link-rgb), var(--btcpay-link-opacity, 1)) !important;
+}
+
+.clipboard-button[data-clipboard-confirming] {
+    color: var(--btcpay-success) !important;
+}
+
+.clipboard-button[data-clipboard-confirming]::before {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M13.7808 4.21934C13.9213 4.35997 14.0002 4.55059 14.0002 4.74934C14.0002 4.94809 13.9213 5.13871 13.7808 5.27934L6.53082 12.5293C6.3902 12.6698 6.19957 12.7487 6.00082 12.7487C5.80207 12.7487 5.61145 12.6698 5.47082 12.5293L2.22082 9.27934C2.08834 9.13717 2.01622 8.94912 2.01965 8.75482C2.02308 8.56052 2.10179 8.37513 2.2392 8.23772C2.37661 8.10031 2.562 8.02159 2.7563 8.01816C2.9506 8.01474 3.13865 8.08686 3.28082 8.21934L6.00082 10.9393L12.7208 4.21934C12.8614 4.07889 13.0521 4 13.2508 4C13.4496 4 13.6402 4.07889 13.7808 4.21934Z' fill='%2351B13E'/%3E%3C/svg%3E ");
+}
+
+.clipboard-button-hover {
     position: relative;
 }
-[data-clipboard-hover]::before {
+
+.clipboard-button-hover::before {
     content: '';
     position: absolute;
     top: .45rem;
@@ -1106,37 +1138,31 @@ input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
     background-repeat: no-repeat;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M13.3333 6H7.33333C6.59695 6 6 6.59695 6 7.33333V13.3333C6 14.0697 6.59695 14.6667 7.33333 14.6667H13.3333C14.0697 14.6667 14.6667 14.0697 14.6667 13.3333V7.33333C14.6667 6.59695 14.0697 6 13.3333 6Z' stroke='%236E7681' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M3.33203 10.0007H2.66536C2.31174 10.0007 1.9726 9.86018 1.72256 9.61013C1.47251 9.36008 1.33203 9.02094 1.33203 8.66732V2.66732C1.33203 2.3137 1.47251 1.97456 1.72256 1.72451C1.9726 1.47446 2.31174 1.33398 2.66536 1.33398H8.66536C9.01899 1.33398 9.35813 1.47446 9.60817 1.72451C9.85822 1.97456 9.9987 2.3137 9.9987 2.66732V3.33398' stroke='%236E7681' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
-[data-clipboard-hover="start"]::before {
+
+.clipboard-button-hover[data-clipboard-hover="start"]::before {
     left: auto;
     right: calc(100% + var(--btcpay-space-s));
 }
-[data-clipboard-hover][data-clipboard-confirming]::before {
+
+.clipboard-button-hover[data-clipboard-confirming]::before {
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M13.7808 4.21934C13.9213 4.35997 14.0002 4.55059 14.0002 4.74934C14.0002 4.94809 13.9213 5.13871 13.7808 5.27934L6.53082 12.5293C6.3902 12.6698 6.19957 12.7487 6.00082 12.7487C5.80207 12.7487 5.61145 12.6698 5.47082 12.5293L2.22082 9.27934C2.08834 9.13717 2.01622 8.94912 2.01965 8.75482C2.02308 8.56052 2.10179 8.37513 2.2392 8.23772C2.37661 8.10031 2.562 8.02159 2.7563 8.01816C2.9506 8.01474 3.13865 8.08686 3.28082 8.21934L6.00082 10.9393L12.7208 4.21934C12.8614 4.07889 13.0521 4 13.2508 4C13.4496 4 13.6402 4.07889 13.7808 4.21934Z' fill='%2351B13E'/%3E%3C/svg%3E ");
 }
-[data-clipboard-hover]:hover::before {
+
+.clipboard-button-hover:hover::before {
     opacity: 1;
-}
-.btn[data-clipboard],
-.btn[data-clipboard-target] {
-    color: var(--btcpay-body-text-muted);
-}
-.btn[data-clipboard]:hover,
-.btn[data-clipboard-target]:hover {
-    color: var(--btcpay-body-link-accent);
-}
-.btn[data-clipboard-confirming] {
-    color: var(--btcpay-success) !important;
 }
 
 .btn .icon-scan-qr {
-    --btn-icon-size: 1.1875rem;
+    --icon-size: 1.1875rem;
 }
 .btn .icon-qr-code {
-    --btn-icon-size: 1.5rem;
+    --icon-size: 1.5rem;
 }
 .blazor-status .btn-close .icon {
-    width: .75rem;
-    height: .75rem;
+    --icon-size: .75rem;
+}
+.btn.btn-lg .icon {
+    --icon-size: 1.75rem;
 }
 
 /* Tables */
@@ -1187,7 +1213,7 @@ input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
     font-weight: var(--btcpay-font-weight-semibold);
 }
 .mass-action > .mass-action-actions button .icon {
-    --btn-icon-size: 1.75rem;
+    margin-right: var(--btcpay-space-xs);
 }
 .mass-action .mass-action-select-col {
     width: 2rem;
@@ -1197,9 +1223,14 @@ input.ts-wrapper.form-control:not(.ts-hidden-accessible,.ts-inline) {
  Responsive table adjustments: Reset sticky header height,
  because it doesn't work in containers with overflow auto.
 */
-.table-responsive{
+.table-responsive {
     --sticky-header-height: 0;
 }
+.sticky-header + .table-responsive,
+main .sticky-header + [class*='table-responsive'] {
+    margin-top: 0 !important;
+}
+
 @media (max-width: 575.98px) {
     .table-responsive-sm {
         --sticky-header-height: 0;

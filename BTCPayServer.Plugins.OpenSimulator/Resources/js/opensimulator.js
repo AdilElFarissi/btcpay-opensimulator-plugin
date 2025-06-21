@@ -18,9 +18,9 @@ function getItemHtml(item, action){
     var teleportLink = "hop://" + item.ObjectURL.replace("http://","").replace("https://","")+ "/" + encodeURI(item.ObjectRegion.split("(")[0].trim()) +"/"+ vector2Path +"/teleport";    
     var dataSet = 'data-id="'+ item.Id +'" data-storeId="'+ StoreId +'" data-avatarId="'+ item.AvatarId +'" data-objectId="'+ item.ObjectId +'" data-objectname="'+ item.ObjectName +'"';
     if(action == "Remove"){
-        actionBadges = '<td style="text-align:right;"><a href="'+ teleportLink +'" target="_blank"><span class="badge badge-settled">Teleport</span></a><button type="submit" class="badge badge-invalid formSubmit" '+ dataSet +' data-task="remove">Remove</button><a class="badge badge-info showDetails" data-bs-toggle="collapse" aria-expanded="false" href="#details_'+ item.Id +'" data-details="details_'+ item.Id +'" style="width:22px;margin-right:0;"><i class="fa fa-info"></i></a></td>';
+        actionBadges = '<td style="text-align:right;"><a href="'+ teleportLink +'" target="_blank"><span class="badge badge-settled">Teleport</span></a><button type="submit" class="badge badge-invalid formSubmit" '+ dataSet +' data-task="remove">Remove</button><a class="badge badge-info showDetails" data-bs-toggle="collapse" aria-expanded="false" href="#details_'+ item.Id +'" data-details="details_'+ item.Id +'" style="width:22px;margin-right:0;">?</a></td>';
     }else if(action == "Authorize"){
-        actionBadges = '<td style="text-align:right;"><button type="submit" class="badge badge-invalid formSubmit" '+ dataSet +' data-task="remove">Remove</button><button type="submit" class="badge badge-processing formSubmit" '+ dataSet +' data-task="authorize">Authorize</button><a class="badge badge-info showDetails" data-bs-toggle="collapse" aria-expanded="false" href="#details_'+ item.Id +'" data-details="details_'+ item.Id +'" style="width:22px;margin-right:0;"><i class="fa fa-info"></i></a></td>';
+        actionBadges = '<td style="text-align:right;"><button type="submit" class="badge badge-invalid formSubmit" '+ dataSet +' data-task="remove">Remove</button><button type="submit" class="badge badge-processing formSubmit" '+ dataSet +' data-task="authorize">Authorize</button><a class="badge badge-info showDetails" data-bs-toggle="collapse" aria-expanded="false" href="#details_'+ item.Id +'" data-details="details_'+ item.Id +'" style="width:22px;margin-right:0;">?</a></td>';
     }
     authorizationHtml += '<tr id="'+ item.Id +'">';
     authorizationHtml += '<td style="width: 180px;">'+ item.AvatarName +'</td>'; 
@@ -131,7 +131,7 @@ $("#scriptsNav li").on("click", function(e){
 
 function updateTipjarScript (){
     var tipjarHtml = '';
-    tipjarHtml += '/* BTCPay Server Crypto Tip-jar Script for OpenSimulator Plugin v0.1.2.1.\n\n';
+    tipjarHtml += '/* BTCPay Server Crypto Tip-jar Script for OpenSimulator Plugin v0.1.2.2.\n\n';
     
     tipjarHtml += 'THIS SCRIPT IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n';
     tipjarHtml += 'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, \n';
@@ -623,7 +623,7 @@ $(".vDisplayCurrency, .rbDisplayCurrency").html('<option value="'+ defaultCurren
 
 function updateVendorScript(){
     var vendorHtml = '';
-    vendorHtml += '/* BTCPay Server Single Product Vendor Script for OpenSimulator Plugin v0.1.2.1.\n\n';
+    vendorHtml += '/* BTCPay Server Single Product Vendor Script for OpenSimulator Plugin v0.1.2.2.\n\n';
 
     vendorHtml += 'THIS SCRIPT IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n';
     vendorHtml += 'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, \n';
@@ -1154,7 +1154,7 @@ $("#vDisplayCurrency, #vItemPrice, #vNotificationEmail, #vRedirectURL, #vCheckou
 
 function updateRentalBoxScript(){
     var rentalBoxHtml = '';
-    rentalBoxHtml += '/* BTCPay Server Parcels Rental Script for OpenSimulator Plugin v0.1.2.1.\n\n';
+    rentalBoxHtml += '/* BTCPay Server Parcels Rental Script for OpenSimulator Plugin v0.1.2.2.\n\n';
 
     rentalBoxHtml += 'THIS SCRIPT IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n';
     rentalBoxHtml += 'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, \n';

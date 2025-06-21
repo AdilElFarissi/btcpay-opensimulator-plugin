@@ -2,16 +2,19 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Constants;
+using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Client;
 using BTCPayServer.Data;
 using BTCPayServer.Models.StoreViewModels;
+using BTCPayServer.Services;
 using BTCPayServer.Services.Rates;
 using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.Extensions.Localization;
 
 namespace BTCPayServer.Controllers
 {
@@ -20,17 +23,23 @@ namespace BTCPayServer.Controllers
     public class UIUserStoresController : Controller
     {
         private readonly StoreRepository _repo;
+        private readonly IStringLocalizer StringLocalizer;
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly DefaultRulesCollection _defaultRules;
         private readonly RateFetcher _rateFactory;
         public string CreatedStoreId { get; set; }
 
         public UIUserStoresController(
             UserManager<ApplicationUser> userManager,
+			DefaultRulesCollection defaultRules,
             StoreRepository storeRepository,
+            IStringLocalizer stringLocalizer,
             RateFetcher rateFactory)
         {
             _repo = storeRepository;
+            StringLocalizer = stringLocalizer;
             _userManager = userManager;
+            _defaultRules = defaultRules;
             _rateFactory = rateFactory;
         }
 
@@ -43,6 +52,7 @@ namespace BTCPayServer.Controllers
             {
                 Stores = stores
                     .Where(s => s.Archived == archived)
+                    .OrderBy(s => s.StoreName, StringComparer.InvariantCultureIgnoreCase)
                     .Select(s => new ListStoresViewModel.StoreViewModel
                     {
                         StoreId = s.Id,
@@ -59,11 +69,16 @@ namespace BTCPayServer.Controllers
         public async Task<IActionResult> CreateStore(bool skipWizard)
         {
             var stores = await _repo.GetStoresByUserId(GetUserId());
+            var defaultTemplate = await _repo.GetDefaultStoreTemplate();
+            var blob = defaultTemplate.GetStoreBlob();
             var vm = new CreateStoreViewModel
             {
+                Name = defaultTemplate.StoreName,
                 IsFirstStore = !(stores.Any() || skipWizard),
-                DefaultCurrency = StoreBlob.StandardDefaultCurrency,
-                Exchanges = GetExchangesSelectList(null)
+                DefaultCurrency = blob.DefaultCurrency,
+                Exchanges = GetExchangesSelectList(blob.DefaultCurrency, null),
+                CanEditPreferredExchange = blob.GetRateSettings(false)?.RateScripting is not true,
+                PreferredExchange = blob.GetRateSettings(false)?.PreferredExchange
             };
 
             return View(vm);
@@ -77,18 +92,26 @@ namespace BTCPayServer.Controllers
             {
                 var stores = await _repo.GetStoresByUserId(GetUserId());
                 vm.IsFirstStore = !stores.Any();
-                vm.Exchanges = GetExchangesSelectList(vm.PreferredExchange);
+                var template = await _repo.GetDefaultStoreTemplate();
+                var defaultCurrency = template.GetStoreBlob().DefaultCurrency ?? StoreBlob.StandardDefaultCurrency;
+                vm.Exchanges = GetExchangesSelectList(defaultCurrency, null);
                 return View(vm);
             }
 
-            var store = new StoreData { StoreName = vm.Name };
+            var store = await _repo.GetDefaultStoreTemplate();
+            store.StoreName = vm.Name;
             var blob = store.GetStoreBlob();
             blob.DefaultCurrency = vm.DefaultCurrency;
-            blob.PreferredExchange = vm.PreferredExchange;
+            if (vm.CanEditPreferredExchange)
+            {
+                var rate = blob.GetOrCreateRateSettings(false);
+                rate.PreferredExchange = vm.PreferredExchange;
+                rate.RateScripting = false;
+            }
             store.SetStoreBlob(blob);
             await _repo.CreateStore(GetUserId(), store);
             CreatedStoreId = store.Id;
-            TempData[WellKnownTempData.SuccessMessage] = "Store successfully created";
+            TempData.SetStatusSuccess(StringLocalizer["Store successfully created"]);
             return RedirectToAction(nameof(UIStoresController.Index), "UIStores", new
             {
                 storeId = store.Id
@@ -102,7 +125,7 @@ namespace BTCPayServer.Controllers
             var store = HttpContext.GetStoreData();
             if (store == null)
                 return NotFound();
-            return View("Confirm", new ConfirmModel($"Delete store {store.StoreName}", "This store will still be accessible to users sharing it", "Delete"));
+            return View("Confirm", new ConfirmModel(StringLocalizer["Delete store {0}", store.StoreName], StringLocalizer["This store will still be accessible to users sharing it"], "Delete"));
         }
 
         [HttpPost("{storeId}/me/delete")]
@@ -114,21 +137,25 @@ namespace BTCPayServer.Controllers
             if (store == null)
                 return NotFound();
             await _repo.RemoveStore(storeId, userId);
-            TempData[WellKnownTempData.SuccessMessage] = "Store removed successfully";
+            TempData.SetStatusSuccess(StringLocalizer["Store removed successfully"]);
             return RedirectToAction(nameof(UIHomeController.Index), "UIHome");
         }
 
         private string GetUserId() => _userManager.GetUserId(User);
 
-        private SelectList GetExchangesSelectList(string selected)
-        {
-            var exchanges = _rateFactory.RateProviderFactory
-                .AvailableRateProviders
-                .OrderBy(s => s.Id, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            exchanges.Insert(0, new (null, "Recommended", ""));
-            var chosen = exchanges.FirstOrDefault(f => f.Id == selected) ?? exchanges.First();
-            return new SelectList(exchanges, nameof(chosen.Id), nameof(chosen.DisplayName), chosen.Id);
-        }
-    }
+		internal SelectList GetExchangesSelectList(string defaultCurrency, StoreBlob.RateSettings rateSettings)
+		{
+			if (rateSettings is null)
+                rateSettings = new ();
+			var defaultExchange = _defaultRules.GetRecommendedExchange(defaultCurrency);
+			var exchanges = _rateFactory.RateProviderFactory
+				.AvailableRateProviders
+				.OrderBy(s => s.Id, StringComparer.OrdinalIgnoreCase)
+				.ToList();
+			var exchange = exchanges.First(e => e.Id == defaultExchange);
+			exchanges.Insert(0, new(null, StringLocalizer["Recommendation ({0})", exchange.DisplayName], ""));
+			var chosen = exchanges.FirstOrDefault(f => f.Id == rateSettings.PreferredExchange) ?? exchanges.First();
+			return new SelectList(exchanges, nameof(chosen.Id), nameof(chosen.DisplayName), chosen.Id);
+		}
+	}
 }

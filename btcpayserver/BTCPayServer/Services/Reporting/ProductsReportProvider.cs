@@ -17,7 +17,7 @@ public class ProductsReportProvider : ReportProvider
         _displayFormatter = displayFormatter;
         Apps = apps;
     }
-    
+
     private readonly DisplayFormatter _displayFormatter;
     private InvoiceRepository InvoiceRepository { get; }
     private AppService Apps { get; }
@@ -33,7 +33,6 @@ public class ProductsReportProvider : ReportProvider
         {
             IncludeArchived = true,
             IncludeAddresses = false,
-            IncludeEvents = false,
             IncludeRefunds = false,
             StartDate = queryContext.From,
             EndDate = queryContext.To,
@@ -43,7 +42,7 @@ public class ProductsReportProvider : ReportProvider
             var values = queryContext.CreateData();
             values.Add(i.InvoiceTime);
             values.Add(i.Id);
-            var status = i.Status.ToModernStatus();
+            var status = i.Status;
             if (status == Client.Models.InvoiceStatus.Expired && i.ExceptionStatus == Client.Models.InvoiceExceptionStatus.None)
                 continue;
             values.Add(status.ToString());
@@ -61,28 +60,25 @@ public class ProductsReportProvider : ReportProvider
             {
                 values = values.ToList();
                 values.Add(appId);
-                if (i.Metadata?.ItemCode is string code)
+                if (AppService.TryParsePosCartItems(i.Metadata?.PosData, out var items))
+                {
+                    foreach (var item in items)
+                    {
+                        var copy = values.ToList();
+                        copy.Add(item.Id);
+                        copy.Add(item.Count);
+                        copy.Add(item.Price * item.Count);
+                        copy.Add(i.Currency);
+                        queryContext.Data.Add(copy);
+                    }
+                }
+                else if (i.Metadata?.ItemCode is string code)
                 {
                     values.Add(code);
                     values.Add(1);
                     values.Add(i.Price);
                     values.Add(i.Currency);
                     queryContext.Data.Add(values);
-                }
-                else
-                {
-                    if (AppService.TryParsePosCartItems(i.Metadata?.PosData, out var items))
-                    {
-                        foreach (var item in items)
-                        {
-                            var copy = values.ToList();
-                            copy.Add(item.Id);
-                            copy.Add(item.Count);
-                            copy.Add(item.Price * item.Count);
-                            copy.Add(i.Currency);
-                            queryContext.Data.Add(copy);
-                        }
-                    }
                 }
             }
         }

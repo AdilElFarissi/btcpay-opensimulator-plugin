@@ -4,8 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using BTCPayServer.Common;
-using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.Extensions.DependencyInjection;
 using NBitcoin;
 using NBXplorer;
 using NBXplorer.Models;
@@ -129,6 +127,11 @@ namespace BTCPayServer
         public virtual List<TransactionInformation> FilterValidTransactions(List<TransactionInformation> transactionInformationSet)
         {
             return transactionInformationSet;
+        }
+
+        public string GetTrackedDestination(Script scriptPubKey)
+        {
+            return scriptPubKey.Hash.ToString();
         }
     }
 

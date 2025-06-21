@@ -7,12 +7,12 @@ using NBitcoin;
 
 namespace BTCPayServer.Models.WalletViewModels
 {
-    public class WalletPSBTCombineViewModel
+    public class WalletPSBTCombineViewModel : IHasBackAndReturnUrl
     {
         public string OtherPSBT { get; set; }
-        [Display(Name = "PSBT to combine with...")]
+        [Display(Name = "PSBT to combine with…")]
         public string PSBT { get; set; }
-        [Display(Name = "Upload PSBT from file...")]
+        [Display(Name = "Upload PSBT from file…")]
         public IFormFile UploadedPSBTFile { get; set; }
 
         public string BackUrl { get; set; }

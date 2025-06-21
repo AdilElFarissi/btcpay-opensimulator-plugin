@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
+using BTCPayServer.Client.Models;
 using BTCPayServer.Controllers;
 using BTCPayServer.Data;
-using BTCPayServer.Events;
-using BTCPayServer.HostedServices;
 using BTCPayServer.Hosting;
 using BTCPayServer.Lightning;
 using BTCPayServer.Models.AppViewModels;
@@ -17,6 +17,7 @@ using BTCPayServer.Plugins.PointOfSale;
 using BTCPayServer.Plugins.PointOfSale.Controllers;
 using BTCPayServer.Plugins.PointOfSale.Models;
 using BTCPayServer.Services.Apps;
+using BTCPayServer.Services.Invoices;
 using Microsoft.AspNetCore.Mvc;
 using NBitcoin;
 using NBitpayClient;
@@ -24,7 +25,7 @@ using Newtonsoft.Json.Linq;
 using OpenQA.Selenium;
 using Xunit;
 using Xunit.Abstractions;
-using Xunit.Sdk;
+using PosViewType = BTCPayServer.Plugins.PointOfSale.PosViewType;
 using WalletSettingsViewModel = BTCPayServer.Models.StoreViewModels.WalletSettingsViewModel;
 
 namespace BTCPayServer.Tests
@@ -73,14 +74,17 @@ namespace BTCPayServer.Tests
                 var controller = user.GetController<UIStoresController>();
                 var lightningVm = (LightningNodeViewModel)Assert.IsType<ViewResult>(controller.SetupLightningNode(user.StoreId, cryptoCode)).Model;
                 Assert.True(lightningVm.Enabled);
-                var response = await controller.SetLightningNodeEnabled(user.StoreId, cryptoCode, false);
-                Assert.IsType<RedirectToActionResult>(response);
 
                 // Get enabled state from settings
-                LightningSettingsViewModel lnSettingsModel;
+                var response = controller.LightningSettings(user.StoreId, cryptoCode);
+                var lnSettingsModel = (LightningSettingsViewModel)Assert.IsType<ViewResult>(response).Model;
+                Assert.NotNull(lnSettingsModel?.ConnectionString);
+                Assert.True(lnSettingsModel.Enabled);
+                lnSettingsModel.Enabled = false;
+                response = await controller.LightningSettings(lnSettingsModel);
+                Assert.IsType<RedirectToActionResult>(response);
                 response = controller.LightningSettings(user.StoreId, cryptoCode);
                 lnSettingsModel = (LightningSettingsViewModel)Assert.IsType<ViewResult>(response).Model;
-                Assert.NotNull(lnSettingsModel?.ConnectionString);
                 Assert.False(lnSettingsModel.Enabled);
 
                 // Setup wallet
@@ -90,16 +94,16 @@ namespace BTCPayServer.Tests
                 Assert.IsType<ViewResult>(response);
 
                 // Get enabled state from settings
-                response = controller.WalletSettings(user.StoreId, cryptoCode).GetAwaiter().GetResult();
+                response = await controller.WalletSettings(user.StoreId, cryptoCode);
                 var onchainSettingsModel = (WalletSettingsViewModel)Assert.IsType<ViewResult>(response).Model;
                 Assert.NotNull(onchainSettingsModel?.DerivationScheme);
                 Assert.True(onchainSettingsModel.Enabled);
 
                 // Disable wallet
                 onchainSettingsModel.Enabled = false;
-                response = controller.UpdateWalletSettings(onchainSettingsModel).GetAwaiter().GetResult();
+                response = await controller.UpdateWalletSettings(onchainSettingsModel);
                 Assert.IsType<RedirectToActionResult>(response);
-                response = controller.WalletSettings(user.StoreId, cryptoCode).GetAwaiter().GetResult();
+                response = await controller.WalletSettings(user.StoreId, cryptoCode);
                 onchainSettingsModel = (WalletSettingsViewModel)Assert.IsType<ViewResult>(response).Model;
                 Assert.NotNull(onchainSettingsModel?.DerivationScheme);
                 Assert.False(onchainSettingsModel.Enabled);
@@ -121,7 +125,7 @@ namespace BTCPayServer.Tests
                 Assert.Equal("LTC", invoice.CryptoInfo[0].CryptoCode);
 
                 // Removing the derivation scheme, should redirect to store page
-                response = controller.ConfirmDeleteWallet(user.StoreId, cryptoCode).GetAwaiter().GetResult();
+                response = await controller.ConfirmDeleteWallet(user.StoreId, cryptoCode);
                 Assert.IsType<RedirectToActionResult>(response);
 
                 // Setting it again should show the confirmation page
@@ -171,13 +175,14 @@ namespace BTCPayServer.Tests
                 Assert.Equal("ElectrumFile", settingsVm.Source);
 
                 // Now let's check that no data has been lost in the process
-                var store = tester.PayTester.StoreRepository.FindStore(storeId).GetAwaiter().GetResult();
-                var onchainBTC = store.GetSupportedPaymentMethods(tester.PayTester.Networks)
-#pragma warning disable CS0618 // Type or member is obsolete
-                    .OfType<DerivationSchemeSettings>().First(o => o.PaymentId.IsBTCOnChain);
-#pragma warning restore CS0618 // Type or member is obsolete
-                FastTests.GetParsers().TryParseWalletFile(content, onchainBTC.Network, out var expected, out var error);
-                Assert.Equal(expected.ToJson(), onchainBTC.ToJson());
+                var store = await tester.PayTester.StoreRepository.FindStore(storeId);
+                var handlers = tester.PayTester.GetService<PaymentMethodHandlerDictionary>();
+                var pmi = PaymentTypes.CHAIN.GetPaymentMethodId("BTC");
+                var onchainBTC = store.GetPaymentMethodConfig<DerivationSchemeSettings>(pmi, handlers);
+                var network = handlers.GetBitcoinHandler("BTC").Network;
+                FastTests.GetParsers().TryParseWalletFile(content, network, out var expected, out var error);
+                var handler = handlers[pmi];
+                Assert.Equal(JToken.FromObject(expected, handler.Serializer), JToken.FromObject(onchainBTC, handler.Serializer));
                 Assert.Null(error);
 
                 // Let's check that the root hdkey and account key path are taken into account when making a PSBT
@@ -202,7 +207,7 @@ namespace BTCPayServer.Tests
                     Assert.Equal("paid", invoice.Status);
                 });
                 var wallet = tester.PayTester.GetController<UIWalletsController>();
-                var psbt = wallet.CreatePSBT(btcNetwork, onchainBTC,
+                var psbt = await wallet.CreatePSBT(storeId, btcNetwork, onchainBTC,
                     new WalletSendModel()
                     {
                         Outputs = new List<WalletSendModel.TransactionOutput>
@@ -215,7 +220,7 @@ namespace BTCPayServer.Tests
                             }
                         },
                         FeeSatoshiPerByte = 1
-                    }, default).GetAwaiter().GetResult();
+                    }, default);
 
                 Assert.NotNull(psbt);
 
@@ -307,16 +312,17 @@ namespace BTCPayServer.Tests
                 {
                     invoice = user.BitPay.GetInvoice(invoice.Id);
                     Assert.Equal(firstPayment, invoice.CryptoInfo[0].Paid);
+                    Assert.Equal("paidPartial", invoice.ExceptionStatus?.ToString());
                 });
 
                 Assert.Single(invoice.CryptoInfo); // Only BTC should be presented
 
                 var controller = tester.PayTester.GetController<UIInvoiceController>(null);
                 var checkout =
-                    (Models.InvoicingModels.PaymentModel)((JsonResult)controller.GetStatus(invoice.Id)
+                    (Models.InvoicingModels.CheckoutModel)((JsonResult)controller.GetStatus(invoice.Id)
                         .GetAwaiter().GetResult()).Value;
-                Assert.Single(checkout.AvailableCryptos);
-                Assert.Equal("LTC", checkout.CryptoCode);
+                Assert.Single(checkout.AvailablePaymentMethods);
+                Assert.Equal("LTC", checkout.PaymentMethodCurrency);
 
                 //////////////////////
 
@@ -330,43 +336,44 @@ namespace BTCPayServer.Tests
                 {
                     invoice = user.BitPay.GetInvoice(invoice.Id);
                     Assert.Equal("paid", invoice.Status);
-                    checkout = (Models.InvoicingModels.PaymentModel)((JsonResult)controller.GetStatus(invoice.Id)
+                    checkout = (Models.InvoicingModels.CheckoutModel)((JsonResult)controller.GetStatus(invoice.Id)
                         .GetAwaiter().GetResult()).Value;
-                    Assert.Equal("paid", checkout.Status);
+                    Assert.Equal("Processing", checkout.Status);
                 });
             }
         }
 
 
         [Fact]
-        [Trait("Selenium", "Selenium")]
+        [Trait("Playwright", "Playwright")]
         [Trait("Altcoins", "Altcoins")]
         public async Task CanCreateRefunds()
         {
-            using (var s = CreateSeleniumTester())
-            {
-                s.Server.ActivateLTC();
-                await s.StartAsync();
-                var user = s.Server.NewAccount();
-                await user.GrantAccessAsync();
-                s.GoToLogin();
-                s.LogIn(user.RegisterDetails.Email, user.RegisterDetails.Password);
-                user.RegisterDerivationScheme("BTC");
-                await s.Server.ExplorerNode.GenerateAsync(1);
+            await using var s = CreatePlaywrightTester();
+            s.Server.ActivateLTC();
+            await s.StartAsync();
+            var user = s.Server.NewAccount();
+            await user.GrantAccessAsync();
+            await s.GoToLogin();
+            await s.LogIn(user.RegisterDetails.Email, user.RegisterDetails.Password);
+            await user.RegisterDerivationSchemeAsync("BTC");
+            await s.Server.ExplorerNode.GenerateAsync(1);
 
-                foreach (var multiCurrency in new[] { false, true })
+            foreach (var multiCurrency in new[] { false, true })
+            {
+                if (multiCurrency)
+                    await user.RegisterDerivationSchemeAsync("LTC");
+                foreach (var rateSelection in new[] { "FiatOption", "CurrentRateOption", "RateThenOption", "CustomOption" })
                 {
-                    if (multiCurrency)
-                        user.RegisterDerivationScheme("LTC");
-                    foreach (var rateSelection in new[] { "FiatOption", "CurrentRateOption", "RateThenOption", "CustomOption" })
-                        await CanCreateRefundsCore(s, user, multiCurrency, rateSelection);
+                    TestLogs.LogInformation((multiCurrency, rateSelection).ToString());
+                    await CanCreateRefundsCore(s, user, multiCurrency, rateSelection);
                 }
             }
         }
 
-        private static async Task CanCreateRefundsCore(SeleniumTester s, TestAccount user, bool multiCurrency, string rateSelection)
+        private static async Task CanCreateRefundsCore(PlaywrightTester s, TestAccount user, bool multiCurrency, string rateSelection)
         {
-            s.GoToHome();
+            await s.GoToHome();
             s.Server.PayTester.ChangeRate("BTC_USD", new Rating.BidAsk(5000.0m, 5100.0m));
             var invoice = await user.BitPay.CreateInvoiceAsync(new Invoice
             {
@@ -381,105 +388,51 @@ namespace BTCPayServer.Tests
             await TestUtils.EventuallyAsync(async () =>
             {
                 invoice = await user.BitPay.GetInvoiceAsync(invoice.Id);
-                Assert.Equal("confirmed", invoice.Status);
+                Assert.Equal("complete", invoice.Status);
             });
 
             // BTC crash by 50%
             s.Server.PayTester.ChangeRate("BTC_USD", new Rating.BidAsk(5000.0m / 2.0m, 5100.0m / 2.0m));
-            s.GoToStore();
-            s.Driver.FindElement(By.Id("BOLT11Expiration")).Clear();
-            s.Driver.FindElement(By.Id("BOLT11Expiration")).SendKeys("5" + Keys.Enter);
-            s.GoToInvoice(invoice.Id);
-            s.Driver.FindElement(By.Id("IssueRefund")).Click();
+            await s.GoToStore();
+            await s.Page.FillAsync("#BOLT11Expiration", "5");
+
+            await s.Page.FillAsync("#BOLT11Expiration", "5");
+            await s.Page.PressAsync("#BOLT11Expiration", "Enter");
+            await s.GoToInvoice(invoice.Id);
+            await s.Page.ClickAsync("#IssueRefund");
 
             if (multiCurrency)
             {
-                s.Driver.WaitUntilAvailable(By.Id("RefundForm"), TimeSpan.FromSeconds(1));
-                s.Driver.WaitUntilAvailable(By.Id("SelectedPaymentMethod"), TimeSpan.FromSeconds(1));
-                s.Driver.FindElement(By.Id("SelectedPaymentMethod")).SendKeys("BTC" + Keys.Enter);
-                s.Driver.FindElement(By.Id("ok")).Click();
+                await s.Page.SelectOptionAsync("#SelectedPayoutMethod", "BTC-CHAIN");
+                await s.Page.ClickAsync("#ok");
             }
+            await s.Page.WaitForSelectorAsync("#RefundForm");
 
-            s.Driver.WaitUntilAvailable(By.Id("RefundForm"), TimeSpan.FromSeconds(1));
-            Assert.Contains("5,500.00 USD", s.Driver.PageSource); // Should propose reimburse in fiat
-            Assert.Contains("1.10000000 BTC", s.Driver.PageSource); // Should propose reimburse in BTC at the rate of before
-            Assert.Contains("2.20000000 BTC", s.Driver.PageSource); // Should propose reimburse in BTC at the current rate
-            s.Driver.WaitForAndClick(By.Id(rateSelection));
-            s.Driver.FindElement(By.Id("ok")).Click();
+            Assert.Equal("5,500.00 USD", await s.Page.TextContentAsync("label[for='FiatOption']"));
+            Assert.Equal("1.10000000 BTC", await s.Page.TextContentAsync("label[for='RateThenOption']"));
+            Assert.Equal("2.20000000 BTC", await s.Page.TextContentAsync("label[for='CurrentRateOption']"));
 
-            s.Driver.WaitUntilAvailable(By.Id("Destination"), TimeSpan.FromSeconds(1));
-            Assert.Contains("pull-payments", s.Driver.Url);
+            await s.Page.ClickAsync("#" + rateSelection);
+            await s.Page.ClickAsync("#ok");
+
+            var limit = await s.Page.Locator("#claimLimit").TextContentAsync();
+            Assert.Contains("pull-payments", s.Page.Url);
             if (rateSelection == "FiatOption")
-                Assert.Contains("5,500.00 USD", s.Driver.PageSource);
+                Assert.Equal("5,500.00 USD", limit);
             if (rateSelection == "CurrentOption")
-                Assert.Contains("2.20000000 BTC", s.Driver.PageSource);
+                Assert.Equal("2.20000000 BTC", limit);
             if (rateSelection == "RateThenOption")
-                Assert.Contains("1.10000000 BTC", s.Driver.PageSource);
+                Assert.Equal("1.10000000 BTC", limit);
 
-            s.GoToInvoice(invoice.Id);
-            s.Driver.FindElement(By.Id("IssueRefund")).Click();
-            s.Driver.WaitUntilAvailable(By.Id("Destination"), TimeSpan.FromSeconds(1));
-            Assert.Contains("pull-payments", s.Driver.Url);
+            await s.GoToInvoice(invoice.Id);
+            await s.Page.ClickAsync("#IssueRefund");
+            await s.Page.WaitForSelectorAsync("#Destination");
+            Assert.Contains("pull-payments", s.Page.Url);
             var client = await user.CreateClient();
-            var ppid = s.Driver.Url.Split('/').Last();
+            var ppid = s.Page.Url.Split('/').Last();
             var pps = await client.GetPullPayments(user.StoreId);
             var pp = Assert.Single(pps, p => p.Id == ppid);
             Assert.Equal(TimeSpan.FromDays(5.0), pp.BOLT11Expiration);
-        }
-
-        [Fact(Timeout = TestTimeout)]
-        [Trait("Altcoins", "Altcoins")]
-        [Trait("Lightning", "Lightning")]
-        [Trait("Integration", "Integration")]
-        public async Task CanUsePaymentMethodDropdown()
-        {
-            using (var s = CreateSeleniumTester())
-            {
-                s.Server.ActivateLTC();
-                s.Server.ActivateLightning();
-                await s.StartAsync();
-                s.GoToRegister();
-                s.RegisterNewUser(true);
-                s.CreateNewStore();
-                s.AddDerivationScheme("BTC");
-                s.EnableCheckout(Client.Models.CheckoutType.V1);
-                //check that there is no dropdown since only one payment method is set
-                var invoiceId = s.CreateInvoice(10, "USD", "a@g.com");
-                s.GoToInvoiceCheckout(invoiceId);
-                s.Driver.FindElement(By.ClassName("payment__currencies_noborder"));
-                s.GoToHome();
-                s.GoToStore();
-                s.AddDerivationScheme("LTC");
-                s.AddLightningNode(LightningConnectionType.CLightning);
-                //there should be three now
-                invoiceId = s.CreateInvoice(10, "USD", "a@g.com");
-                s.GoToInvoiceCheckout(invoiceId);
-                var currencyDropdownButton = s.Driver.FindElement(By.ClassName("payment__currencies"));
-                Assert.Contains("Bitcoin", currencyDropdownButton.Text);
-                currencyDropdownButton.Click();
-                IEnumerable<IWebElement> elements = null;
-                TestUtils.Eventually(() =>
-                {
-                    elements = s.Driver.FindElement(By.ClassName("vex-content")).FindElements(By.ClassName("vexmenuitem"));
-                    Assert.Equal(3, elements.Count());
-                    elements.Single(element => element.Text.Contains("Litecoin")).Click();
-                });
-                currencyDropdownButton = s.Driver.FindElement(By.ClassName("payment__currencies"));
-                Assert.Contains("Litecoin", currencyDropdownButton.Text);
-                currencyDropdownButton.Click();
-
-
-                TestUtils.Eventually(() =>
-                {
-                    elements = s.Driver.FindElement(By.ClassName("vex-content")).FindElements(By.ClassName("vexmenuitem"));
-                    elements.Single(element => element.Text.Contains("Lightning")).Click();
-                });
-
-                currencyDropdownButton = s.Driver.FindElement(By.ClassName("payment__currencies"));
-                Assert.Contains("Lightning", currencyDropdownButton.Text);
-
-                s.Driver.Quit();
-            }
         }
 
         [Fact(Timeout = TestTimeout)]
@@ -487,136 +440,135 @@ namespace BTCPayServer.Tests
         [Trait("Altcoins", "Altcoins")]
         public async Task CanPayWithTwoCurrencies()
         {
-            using (var tester = CreateServerTester())
+            using var tester = CreateServerTester();
+
+            tester.ActivateLTC();
+            await tester.StartAsync();
+            var user = tester.NewAccount();
+            await user.GrantAccessAsync();
+            user.RegisterDerivationScheme("BTC");
+            // First we try payment with a merchant having only BTC
+            var invoice = await user.BitPay.CreateInvoiceAsync(
+                new Invoice
+                {
+                    Price = 5000.0m,
+                    Currency = "USD",
+                    PosData = "posData",
+                    OrderId = "orderId",
+                    ItemDesc = "Some description",
+                    FullNotifications = true
+                }, Facade.Merchant);
+
+            var cashCow = tester.ExplorerNode;
+            await cashCow.GenerateAsync(2); // get some money in case
+            var invoiceAddress = BitcoinAddress.Create(invoice.BitcoinAddress, cashCow.Network);
+            var firstPayment = Money.Coins(0.04m);
+            await cashCow.SendToAddressAsync(invoiceAddress, firstPayment);
+            TestUtils.Eventually(() =>
             {
-                tester.ActivateLTC();
-                await tester.StartAsync();
-                var user = tester.NewAccount();
-                await user.GrantAccessAsync();
-                user.RegisterDerivationScheme("BTC");
-                // First we try payment with a merchant having only BTC
-                var invoice = await user.BitPay.CreateInvoiceAsync(
-                    new Invoice
-                    {
-                        Price = 5000.0m,
-                        Currency = "USD",
-                        PosData = "posData",
-                        OrderId = "orderId",
-                        ItemDesc = "Some description",
-                        FullNotifications = true
-                    }, Facade.Merchant);
+                invoice = user.BitPay.GetInvoice(invoice.Id);
+                Assert.True(invoice.BtcPaid == firstPayment);
+            });
 
-                var cashCow = tester.ExplorerNode;
-                await cashCow.GenerateAsync(2); // get some money in case
-                var invoiceAddress = BitcoinAddress.Create(invoice.BitcoinAddress, cashCow.Network);
-                var firstPayment = Money.Coins(0.04m);
-                await cashCow.SendToAddressAsync(invoiceAddress, firstPayment);
-                TestUtils.Eventually(() =>
-                {
-                    invoice = user.BitPay.GetInvoice(invoice.Id);
-                    Assert.True(invoice.BtcPaid == firstPayment);
-                });
+            Assert.Single(invoice.CryptoInfo); // Only BTC should be presented
 
-                Assert.Single(invoice.CryptoInfo); // Only BTC should be presented
-
-                var controller = tester.PayTester.GetController<UIInvoiceController>(null);
-                var checkout =
-                    (Models.InvoicingModels.PaymentModel)((JsonResult)controller.GetStatus(invoice.Id, null)
-                        .GetAwaiter().GetResult()).Value;
-                Assert.Single(checkout.AvailableCryptos);
-                Assert.Equal("BTC", checkout.CryptoCode);
-
-                Assert.Single(invoice.PaymentCodes);
-                Assert.Single(invoice.SupportedTransactionCurrencies);
-                Assert.Single(invoice.SupportedTransactionCurrencies);
-                Assert.Single(invoice.PaymentSubtotals);
-                Assert.Single(invoice.PaymentTotals);
-                Assert.True(invoice.PaymentCodes.ContainsKey("BTC"));
-                Assert.True(invoice.SupportedTransactionCurrencies.ContainsKey("BTC"));
-                Assert.True(invoice.SupportedTransactionCurrencies["BTC"].Enabled);
-                Assert.True(invoice.PaymentSubtotals.ContainsKey("BTC"));
-                Assert.True(invoice.PaymentTotals.ContainsKey("BTC"));
-                //////////////////////
-
-                // Retry now with LTC enabled
-                user.RegisterDerivationScheme("LTC");
-                invoice = await user.BitPay.CreateInvoiceAsync(
-                    new Invoice
-                    {
-                        Price = 5000.0m,
-                        Currency = "USD",
-                        PosData = "posData",
-                        OrderId = "orderId",
-                        ItemDesc = "Some description",
-                        FullNotifications = true
-                    }, Facade.Merchant);
-
-                cashCow = tester.ExplorerNode;
-                invoiceAddress = BitcoinAddress.Create(invoice.BitcoinAddress, cashCow.Network);
-                firstPayment = Money.Coins(0.04m);
-                await cashCow.SendToAddressAsync(invoiceAddress, firstPayment);
-                TestLogs.LogInformation("First payment sent to " + invoiceAddress);
-                TestUtils.Eventually(() =>
-                {
-                    invoice = user.BitPay.GetInvoice(invoice.Id);
-                    Assert.True(invoice.BtcPaid == firstPayment);
-                });
-
-                cashCow = tester.LTCExplorerNode;
-                var ltcCryptoInfo = invoice.CryptoInfo.FirstOrDefault(c => c.CryptoCode == "LTC");
-                Assert.NotNull(ltcCryptoInfo);
-                invoiceAddress = BitcoinAddress.Create(ltcCryptoInfo.Address, cashCow.Network);
-                var secondPayment = Money.Coins(decimal.Parse(ltcCryptoInfo.Due, CultureInfo.InvariantCulture));
-                await cashCow.GenerateAsync(4); // LTC is not worth a lot, so just to make sure we have money...
-                await cashCow.SendToAddressAsync(invoiceAddress, secondPayment);
-                TestLogs.LogInformation("Second payment sent to " + invoiceAddress);
-                TestUtils.Eventually(() =>
-                {
-                    invoice = user.BitPay.GetInvoice(invoice.Id);
-                    Assert.Equal(Money.Zero, invoice.BtcDue);
-                    var ltcPaid = invoice.CryptoInfo.First(c => c.CryptoCode == "LTC");
-                    Assert.Equal(Money.Zero, ltcPaid.Due);
-                    Assert.Equal(secondPayment, ltcPaid.CryptoPaid);
-                    Assert.Equal("paid", invoice.Status);
-                    Assert.False((bool)((JValue)invoice.ExceptionStatus).Value);
-                });
-
-                controller = tester.PayTester.GetController<UIInvoiceController>(null);
-                checkout = (Models.InvoicingModels.PaymentModel)((JsonResult)controller.GetStatus(invoice.Id, "LTC")
+            var controller = tester.PayTester.GetController<UIInvoiceController>(null);
+            var checkout =
+                (Models.InvoicingModels.CheckoutModel)((JsonResult)controller.GetStatus(invoice.Id, null)
                     .GetAwaiter().GetResult()).Value;
-                Assert.Equal(2, checkout.AvailableCryptos.Count);
-                Assert.Equal("LTC", checkout.CryptoCode);
+            Assert.Single(checkout.AvailablePaymentMethods);
+            Assert.Equal("BTC", checkout.PaymentMethodCurrency);
 
-                Assert.Equal(2, invoice.PaymentCodes.Count());
-                Assert.Equal(2, invoice.SupportedTransactionCurrencies.Count());
-                Assert.Equal(2, invoice.SupportedTransactionCurrencies.Count());
-                Assert.Equal(2, invoice.PaymentSubtotals.Count());
-                Assert.Equal(2, invoice.PaymentTotals.Count());
-                Assert.True(invoice.PaymentCodes.ContainsKey("LTC"));
-                Assert.True(invoice.SupportedTransactionCurrencies.ContainsKey("LTC"));
-                Assert.True(invoice.SupportedTransactionCurrencies["LTC"].Enabled);
-                Assert.True(invoice.PaymentSubtotals.ContainsKey("LTC"));
-                Assert.True(invoice.PaymentTotals.ContainsKey("LTC"));
+            Assert.Single(invoice.PaymentCodes);
+            Assert.Single(invoice.SupportedTransactionCurrencies);
+            Assert.Single(invoice.SupportedTransactionCurrencies);
+            Assert.Single(invoice.PaymentSubtotals);
+            Assert.Single(invoice.PaymentTotals);
+            Assert.True(invoice.PaymentCodes.ContainsKey("BTC"));
+            Assert.True(invoice.SupportedTransactionCurrencies.ContainsKey("BTC"));
+            Assert.True(invoice.SupportedTransactionCurrencies["BTC"].Enabled);
+            Assert.True(invoice.PaymentSubtotals.ContainsKey("BTC"));
+            Assert.True(invoice.PaymentTotals.ContainsKey("BTC"));
+            //////////////////////
 
-                // Check if we can disable LTC
-                invoice = await user.BitPay.CreateInvoiceAsync(
-                    new Invoice
+            // Retry now with LTC enabled
+            user.RegisterDerivationScheme("LTC");
+            invoice = await user.BitPay.CreateInvoiceAsync(
+                new Invoice
+                {
+                    Price = 5000.0m,
+                    Currency = "USD",
+                    PosData = "posData",
+                    OrderId = "orderId",
+                    ItemDesc = "Some description",
+                    FullNotifications = true
+                }, Facade.Merchant);
+
+            cashCow = tester.ExplorerNode;
+            invoiceAddress = BitcoinAddress.Create(invoice.BitcoinAddress, cashCow.Network);
+            firstPayment = Money.Coins(0.04m);
+            await cashCow.SendToAddressAsync(invoiceAddress, firstPayment);
+            TestLogs.LogInformation("First payment sent to " + invoiceAddress);
+            TestUtils.Eventually(() =>
+            {
+                invoice = user.BitPay.GetInvoice(invoice.Id);
+                Assert.True(invoice.BtcPaid == firstPayment);
+            });
+
+            cashCow = tester.LTCExplorerNode;
+            var ltcCryptoInfo = invoice.CryptoInfo.FirstOrDefault(c => c.CryptoCode == "LTC");
+            Assert.NotNull(ltcCryptoInfo);
+            invoiceAddress = BitcoinAddress.Create(ltcCryptoInfo.Address, cashCow.Network);
+            var secondPayment = Money.Coins(decimal.Parse(ltcCryptoInfo.Due, CultureInfo.InvariantCulture));
+            await cashCow.GenerateAsync(4); // LTC is not worth a lot, so just to make sure we have money...
+            await cashCow.SendToAddressAsync(invoiceAddress, secondPayment);
+            TestLogs.LogInformation("Second payment sent to " + invoiceAddress);
+            TestUtils.Eventually(() =>
+            {
+                invoice = user.BitPay.GetInvoice(invoice.Id);
+                Assert.Equal(Money.Zero, invoice.BtcDue);
+                var ltcPaid = invoice.CryptoInfo.First(c => c.CryptoCode == "LTC");
+                Assert.Equal(Money.Zero, ltcPaid.Due);
+                Assert.Equal(secondPayment, ltcPaid.CryptoPaid);
+                Assert.Equal("paid", invoice.Status);
+                Assert.False((bool)((JValue)invoice.ExceptionStatus).Value);
+            });
+
+            controller = tester.PayTester.GetController<UIInvoiceController>(null);
+            checkout = (Models.InvoicingModels.CheckoutModel)((JsonResult)controller.GetStatus(invoice.Id, "LTC")
+                .GetAwaiter().GetResult()).Value;
+            Assert.Equal(2, checkout.AvailablePaymentMethods.Count);
+            Assert.Equal("LTC", checkout.PaymentMethodCurrency);
+
+            Assert.Equal(2, invoice.PaymentCodes.Count());
+            Assert.Equal(2, invoice.SupportedTransactionCurrencies.Count());
+            Assert.Equal(2, invoice.SupportedTransactionCurrencies.Count());
+            Assert.Equal(2, invoice.PaymentSubtotals.Count());
+            Assert.Equal(2, invoice.PaymentTotals.Count());
+            Assert.True(invoice.PaymentCodes.ContainsKey("LTC"));
+            Assert.True(invoice.SupportedTransactionCurrencies.ContainsKey("LTC"));
+            Assert.True(invoice.SupportedTransactionCurrencies["LTC"].Enabled);
+            Assert.True(invoice.PaymentSubtotals.ContainsKey("LTC"));
+            Assert.True(invoice.PaymentTotals.ContainsKey("LTC"));
+
+            // Check if we can disable LTC
+            invoice = await user.BitPay.CreateInvoiceAsync(
+                new Invoice
+                {
+                    Price = 5000.0m,
+                    Currency = "USD",
+                    PosData = "posData",
+                    OrderId = "orderId",
+                    ItemDesc = "Some description",
+                    FullNotifications = true,
+                    SupportedTransactionCurrencies = new Dictionary<string, InvoiceSupportedTransactionCurrency>()
                     {
-                        Price = 5000.0m,
-                        Currency = "USD",
-                        PosData = "posData",
-                        OrderId = "orderId",
-                        ItemDesc = "Some description",
-                        FullNotifications = true,
-                        SupportedTransactionCurrencies = new Dictionary<string, InvoiceSupportedTransactionCurrency>()
-                        {
-                            {"BTC", new InvoiceSupportedTransactionCurrency() {Enabled = true}}
-                        }
-                    }, Facade.Merchant);
+                        {"BTC", new InvoiceSupportedTransactionCurrency() {Enabled = true}}
+                    }
+                }, Facade.Merchant);
 
-                Assert.Single(invoice.CryptoInfo.Where(c => c.CryptoCode == "BTC"));
-                Assert.Empty(invoice.CryptoInfo.Where(c => c.CryptoCode == "LTC"));
-            }
+            Assert.Single(invoice.CryptoInfo, c => c.CryptoCode == "BTC");
+            Assert.DoesNotContain(invoice.CryptoInfo, c => c.CryptoCode == "LTC");
         }
 
         [Fact]
@@ -791,7 +743,7 @@ noninventoryitem:
                 invoices = user.BitPay.GetInvoices();
                 Assert.Equal(2, invoices.Count(invoice => invoice.ItemCode.Equals("noninventoryitem")));
                 var inventoryItemInvoice =
-                    Assert.Single(invoices.Where(invoice => invoice.ItemCode.Equals("inventoryitem")));
+                    Assert.Single(invoices, invoice => invoice.ItemCode.Equals("inventoryitem"));
                 Assert.NotNull(inventoryItemInvoice);
 
                 //let's mark the inventoryitem invoice as invalid, this should return the item to back in stock
@@ -804,39 +756,6 @@ noninventoryitem:
                     Assert.Equal(1,
                         AppService.Parse(vmpos.Template).Single(item => item.Id == "inventoryitem").Inventory);
                 }, 10000);
-
-                //test payment methods option
-                vmpos = await pos.UpdatePointOfSale(app.Id).AssertViewModelAsync<UpdatePointOfSaleViewModel>();
-                vmpos.Title = "hello";
-                vmpos.Currency = "BTC";
-                vmpos.Template = @"
-btconly:
-  price: 1.0
-  title: good apple
-  payment_methods:
-    - BTC
-normal:
-  price: 1.0";
-                vmpos.Template = AppService.SerializeTemplate(MigrationStartupTask.ParsePOSYML(vmpos.Template));
-                Assert.IsType<RedirectToActionResult>(pos.UpdatePointOfSale(app.Id, vmpos).Result);
-                Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: "btconly").Result);
-                Assert.IsType<RedirectToActionResult>(publicApps
-                    .ViewPointOfSale(app.Id, PosViewType.Cart, 1, choiceKey: "normal").Result);
-                invoices = user.BitPay.GetInvoices();
-                var normalInvoice = invoices.Single(invoice => invoice.ItemCode == "normal");
-                var btcOnlyInvoice = invoices.Single(invoice => invoice.ItemCode == "btconly");
-                Assert.Single(btcOnlyInvoice.CryptoInfo);
-                Assert.Equal("BTC",
-                    btcOnlyInvoice.CryptoInfo.First().CryptoCode);
-                Assert.Equal(PaymentTypes.BTCLike.ToString(),
-                    btcOnlyInvoice.CryptoInfo.First().PaymentType);
-
-                Assert.Equal(2, normalInvoice.CryptoInfo.Length);
-                Assert.Contains(
-                    normalInvoice.CryptoInfo,
-                    s => PaymentTypes.BTCLike.ToString() == s.PaymentType && new[] { "BTC", "LTC" }.Contains(
-                             s.CryptoCode));
 
                 //test topup option
                 vmpos.Template = @"
@@ -867,13 +786,13 @@ g:
                 vmpos = await pos.UpdatePointOfSale(app.Id).AssertViewModelAsync<UpdatePointOfSaleViewModel>();
                 Assert.DoesNotContain("custom", vmpos.Template);
                 var items = AppService.Parse(vmpos.Template);
-                Assert.Contains(items, item => item.Id == "a" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Fixed);
-                Assert.Contains(items, item => item.Id == "b" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Fixed);
-                Assert.Contains(items, item => item.Id == "c" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Minimum);
-                Assert.Contains(items, item => item.Id == "d" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Fixed);
-                Assert.Contains(items, item => item.Id == "e" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Minimum);
-                Assert.Contains(items, item => item.Id == "f" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Topup);
-                Assert.Contains(items, item => item.Id == "g" && item.PriceType == ViewPointOfSaleViewModel.ItemPriceType.Topup);
+                Assert.Contains(items, item => item.Id == "a" && item.PriceType == AppItemPriceType.Fixed);
+                Assert.Contains(items, item => item.Id == "b" && item.PriceType == AppItemPriceType.Fixed);
+                Assert.Contains(items, item => item.Id == "c" && item.PriceType == AppItemPriceType.Minimum);
+                Assert.Contains(items, item => item.Id == "d" && item.PriceType == AppItemPriceType.Fixed);
+                Assert.Contains(items, item => item.Id == "e" && item.PriceType == AppItemPriceType.Minimum);
+                Assert.Contains(items, item => item.Id == "f" && item.PriceType == AppItemPriceType.Topup);
+                Assert.Contains(items, item => item.Id == "g" && item.PriceType == AppItemPriceType.Topup);
 
                 Assert.IsType<RedirectToActionResult>(publicApps
                     .ViewPointOfSale(app.Id, PosViewType.Static, choiceKey: "g").Result);
@@ -881,6 +800,9 @@ g:
                 var topupInvoice = invoices.Single(invoice => invoice.ItemCode == "g");
                 Assert.Equal(0, topupInvoice.Price);
                 Assert.Equal("new", topupInvoice.Status);
+                var client = await user.CreateClient();
+                var inv = await client.GetInvoice(user.StoreId, topupInvoice.Id);
+                Assert.Equal(InvoiceType.TopUp, inv.Type);
             }
         }
     }

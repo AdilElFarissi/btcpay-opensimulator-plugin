@@ -1,4 +1,5 @@
 @using System.Text.Json
+@using BTCPayServer
 @using BTCPayServer.Client
 @using BTCPayServer.Security
 @using BTCPayServer.Abstractions.Extensions
@@ -20,11 +21,11 @@
 @section PageFootContent {
     <script src="~/Resources/js/opensimulator.js" asp-append-version="true"></script>
 }
-<img id="opensimLogo" src="~/Resources/img/opensimLogo.png" style="position: relative;top:-10px;width:64px" asp-append-version="true">&nbsp;<h2 style="display: inline;">@ViewData["Title"]</h2>&nbsp;&nbsp;<span class="ospVersion">v0.1.2</span>
+<img id="opensimLogo" src="~/Resources/img/opensimLogo.png" style="position: relative;top:-10px;width:64px" asp-append-version="true">&nbsp;<h2 style="display: inline;">@ViewData["Title"]</h2>&nbsp;&nbsp;<span class="ospVersion">v0.1.2.2</span>
 <div class="sticky-header mb-l">
     <nav id="SectionNav">
         <div class="nav">
-            <a permission="@Policies.CanModifyStoreSettings" id="SectionNav-@(nameof(OpenSimulatorNavPages.Index))" class="nav-link @ViewData.IsActivePage(OpenSimulatorNavPages.Index)" asp-controller="UIOpenSimulator" asp-action="Index" asp-route-storeId="@Model.StoreID">Authorizations Manager</a>
+            <a permission="@Policies.CanModifyStoreSettings" id="SectionNav-@(nameof(OpenSimulatorNavPages.Index))" class="nav-link @ViewData.ActivePageClass(OpenSimulatorNavPages.Index)" asp-controller="UIOpenSimulator" asp-action="Index" asp-route-storeId="@Model.StoreID">Authorizations Manager</a>
             <a id="osScripts" href="" class="nav-link">LSL Scripts</a>
             <a id="osDocumentation" href="https://github.com/AdilElFarissi/btcpay-opensimulator-plugin/wiki" target="_blank" rel="noreferrer" class="nav-link">Documentation</a>
 

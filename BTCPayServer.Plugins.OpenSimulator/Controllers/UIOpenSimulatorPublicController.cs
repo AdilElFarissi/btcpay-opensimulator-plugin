@@ -20,6 +20,7 @@ using System.Collections.Generic;
 using BTCPayServer.Data;
 using System.Linq;
 using BTCPayServer.Payments;
+using BTCPayServer.Payouts;
 
 namespace BTCPayServer.Plugins.OpenSimulator.Controllers
 {
@@ -31,18 +32,14 @@ namespace BTCPayServer.Plugins.OpenSimulator.Controllers
             _InvoiceController = invoiceController;
             _StoreRepository = storeRepository;
             _OpenSimulatorService = openSimService;
-            _pullPaymentService = pullPaymentService;
             _currencyNameTable = currencyNameTable;
-            _payoutHandlers = payoutHandlers;
             _linkGenerator = linkGenerator;
         }
 
         private readonly UIInvoiceController _InvoiceController;
         private readonly StoreRepository _StoreRepository;
         private readonly OpenSimulatorService _OpenSimulatorService;
-        private readonly PullPaymentHostedService _pullPaymentService;
         private readonly CurrencyNameTable _currencyNameTable;
-        private readonly IEnumerable<IPayoutHandler> _payoutHandlers;
         private readonly LinkGenerator _linkGenerator;
 
 
@@ -213,7 +210,8 @@ namespace BTCPayServer.Plugins.OpenSimulator.Controllers
                     }.ToJObject(),
                     Checkout = new ()
                     {
-                        RedirectURL = model.BrowserRedirect ?? store?.StoreWebsite,
+                        RedirectURL = model.BrowserRedirect
+                        ?? store?.StoreWebsite,
                         DefaultPaymentMethod = model.DefaultPaymentMethod
                     }
                 }, store, HttpContext.Request.GetAbsoluteRoot(),
@@ -233,7 +231,7 @@ namespace BTCPayServer.Plugins.OpenSimulator.Controllers
                     });
             }
 
-            var url = GreenfieldInvoiceController.ToModel(invoice, _linkGenerator, HttpContext.Request).CheckoutLink;
+            var url = GreenfieldInvoiceController.ToModel(invoice, _linkGenerator, _currencyNameTable, HttpContext.Request).CheckoutLink;
             if (!string.IsNullOrEmpty(model.CheckoutQueryString))
             {
                 var additionalParamValues = HttpUtility.ParseQueryString(model.CheckoutQueryString);
@@ -249,142 +247,6 @@ namespace BTCPayServer.Plugins.OpenSimulator.Controllers
                     InvoiceId = invoice.Id,
                     InvoiceUrl = url
                 });
-        }
-
-        [HttpPost("opensim/withdrawals")]
-        [IgnoreAntiforgeryToken]
-        [EnableCors(CorsPolicies.All)]
-        [RateLimitsFilter(ZoneLimits.PublicInvoices, Scope = RateLimitsScope.RemoteAddress)]
-        public async Task<IActionResult> OpenSimWithdrawalHandle([FromHeader] OpenSimAuthorizationData obj, OpenSimulatorWithdrawalData request)
-        {
-            var store = await _StoreRepository.FindStore(obj.StoreId);
-            if (store == null)
-                return Json(new {
-                    ospError = "Invalid store"
-                });
-
-            var a = await _OpenSimulatorService.isAuthorized(obj.StoreId, obj.AvatarId, obj.ObjectId, obj.AvatarHomeURL, obj.ObjectURL);
-            if(a == null)
-               return Json(new {
-                    ospError = "This avatar or object is not authorized to create invoices in this store."
-                }); 
-            if (request is null)
-            {
-                return Json(new {
-                    ospError = "Missing body"
-                });
-            }
-
-            if (request.Amount <= 0.0m)
-            {
-                return Json(new {
-                    ospError = "The amount should more than 0."
-                });
-            }
-            if (request.Name is String name && name.Length > 50)
-            {
-                return Json(new {
-                    ospError = "The name should be maximum 50 characters."
-                });
-            }
-            if (request.Currency is String currency)
-            {
-                request.Currency = currency.ToUpperInvariant().Trim();
-                if (_currencyNameTable.GetCurrencyData(request.Currency, false) is null)
-                {
-                    return Json(new {
-                    ospError = "Invalid currency"
-                    });
-                }
-            }
-            else
-            {
-                return Json(new {
-                    ospError = "Currency field is required"
-                    });
-            }
-            PaymentMethodId[] paymentMethods = null;
-            if (request.PaymentMethodId is { } paymentMethodsStr)
-            {
-                paymentMethods = paymentMethodsStr.Select(s =>
-                {
-                    PaymentMethodId.TryParse(s.ToString(), out var pmi);
-                    return pmi;
-                }).ToArray();
-                var supported = (await _payoutHandlers.GetSupportedPaymentMethods(HttpContext.GetStoreData())).ToArray();
-                for (int i = 0; i < paymentMethods.Length; i++)
-                {
-                    if (!supported.Contains(paymentMethods[i]))
-                    {
-                        return Json(new {
-                            ospError = "Invalid or unsupported payment method"
-                        });
-                    }
-                }
-            }
-            else
-            {
-                return Json(new {
-                    ospError = "payment method field is required"
-                });
-            }
-            
-            var ppId = await _pullPaymentService.CreatePullPayment(new CreatePullPayment()
-            {
-                Name = request.Name,
-                Description = request.Description,
-                Amount = request.Amount,
-                Currency = request.Currency,
-                StoreId = obj.StoreId,
-                PaymentMethodIds = paymentMethods,
-                AutoApproveClaims = false
-            });
-            var pp = await _pullPaymentService.GetPullPayment(ppId, false);
-            if (pp is null)
-            {
-                return Json(new {
-                    ospError = "Failed to create a pull payment"
-                });
-            }
-            var ppBlob = pp.GetBlob();
-            var paymentMethodId = ppBlob.SupportedPaymentMethods[0];
-            var payoutHandler = _payoutHandlers.FindPayoutHandler(paymentMethodId);
-            if (payoutHandler is null)
-            {
-                return Json(new {
-                    ospError = "Invalid payment method"
-                });
-            }
-            var destination = await payoutHandler.ParseAndValidateClaimDestination(paymentMethodId, request!.Destination, ppBlob, CancellationToken.None);
-            if (destination.destination is null)
-            {
-                return Json(new {
-                    ospError = "The destination is invalid for the specified payment"
-                });
-            }
-            var result = await _pullPaymentService.Claim(new ClaimRequest()
-            {
-                Destination = destination.destination,
-                PullPaymentId = pp.Id,
-                Value = request.Amount,
-                PaymentMethodId = paymentMethodId
-            });
-            if (result is null)
-            {
-                return Json(new {
-                    ospError = "Failed to create a payout"
-                });
-            }
-            return Json(new {
-                PullPaymentId = pp.Id,
-                ViewLink = _linkGenerator.GetUriByAction(
-                                nameof(UIPullPaymentController.ViewPullPayment),
-                                "UIPullPayment",
-                                new { pullPaymentId = pp.Id },
-                                Request.Scheme,
-                                Request.Host,
-                                Request.PathBase)
-            });
         }
     }
 }

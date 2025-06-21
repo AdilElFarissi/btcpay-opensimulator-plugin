@@ -7,7 +7,7 @@
   <PropertyGroup>
     <Product>OpenSimulator Plugin For BTCPay</Product>
     <Description>The OpenSimulator Plugin implement a permissioned public interface to allow safe interactions with the OpenSimulator's virtual worlds LSL scripted objects without exposing sensive data like the Greenfield API keys.</Description>
-    <Version>0.1.2.1</Version>
+    <Version>0.1.2.2</Version>
   </PropertyGroup>
 
   <!-- Plugin development properties -->

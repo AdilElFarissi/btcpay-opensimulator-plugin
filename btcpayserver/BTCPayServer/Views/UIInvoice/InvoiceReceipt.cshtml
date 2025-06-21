@@ -70,6 +70,13 @@
                                     <dd class="text-muted mb-0 fw-semibold">Amount Paid</dd>
                                     <dt class="fs-2 mb-0 text-nowrap fw-semibold">@DisplayFormatter.Currency(Model.Amount, Model.Currency, DisplayFormatter.CurrencyFormat.Symbol)</dt>
                                 </div>
+                                @if (Model.TaxIncluded != 0.0m)
+                                {
+                                    <div class="d-flex flex-column">
+                                        <dd class="text-muted mb-0 fw-semibold">Total Taxes</dd>
+                                        <dt class="fs-5 mb-0 text-nowrap fw-semibold">@DisplayFormatter.Currency(Model.TaxIncluded, Model.Currency, DisplayFormatter.CurrencyFormat.Symbol)</dt>
+                                    </div>
+                                }
                                 <div class="d-flex flex-column">
                                     <dd class="text-muted mb-0 fw-semibold">Date</dd>
                                     <dt class="fs-5 mb-0 text-nowrap fw-semibold">@Model.Timestamp.ToBrowserDate()</dt>
@@ -86,7 +93,7 @@
                         </div>
                     }
                 </div>
-                
+
                 @if (isProcessing)
                 {
                     <small class="d-block text-muted text-center px-4">This page will refresh periodically until the invoice is settled.</small>
@@ -175,7 +182,7 @@
                 }
                 @if (!string.IsNullOrEmpty(Model.RedirectUrl))
                 {
-                    <a href="@Model.RedirectUrl" class="btn btn-secondary rounded-pill mx-auto mt-3" rel="noreferrer noopener" target="_blank">Return to @(string.IsNullOrEmpty(Model.StoreName) ? "store" : Model.StoreName)</a>
+                    <a href="@Model.RedirectUrl" class="btn btn-secondary rounded-pill mx-auto mt-3" rel="noreferrer noopener" target="_blank" id="StoreLink">Return to @(string.IsNullOrEmpty(Model.StoreName) ? "store" : Model.StoreName)</a>
                 }
             </div>
         </main>
@@ -186,7 +193,7 @@
                 </a>
             </p>
             <a class="store-powered-by" href="https://btcpayserver.org" target="_blank" rel="noreferrer noopener">
-                Powered by <partial name="_StoreFooterLogo" />
+                <span text-translate="true">Powered by</span> <partial name="_StoreFooterLogo" />
             </a>
         </footer>
     </div>

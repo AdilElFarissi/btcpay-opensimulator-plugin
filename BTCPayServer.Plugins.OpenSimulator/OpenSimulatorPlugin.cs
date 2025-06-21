@@ -10,12 +10,12 @@ public class OpenSimulatorPlugin : BaseBTCPayServerPlugin
 {
     public override IBTCPayServerPlugin.PluginDependency[] Dependencies { get; } =
     {
-        new() { Identifier = nameof(BTCPayServer), Condition = ">=1.13.5" }
+        new() { Identifier = nameof(BTCPayServer), Condition = ">=2.1.5" }
     };
 
     public override void Execute(IServiceCollection services)
     {
-        services.AddSingleton<IUIExtension>(new UIExtension("OpenSimulatorHeaderNav", "header-nav"));
+        services.AddUIExtension("OpenSimulatorHeaderNav", "header-nav");
         services.AddHostedService<OpenSimulatorMigrationRunner>();
         services.AddSingleton<OpenSimulatorService>();
         services.AddSingleton<OpenSimulatorDbContextFactory>();

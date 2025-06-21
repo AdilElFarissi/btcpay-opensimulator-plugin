@@ -123,7 +123,7 @@ namespace BTCPayServer.Plugins.Shopify
 
             var firstInvoiceStillPending =
                 matchedExistingInvoices.FirstOrDefault(entity =>
-                    entity.GetInvoiceState().Status == InvoiceStatusLegacy.New);
+                    entity.GetInvoiceState().Status == InvoiceStatus.New);
             if (firstInvoiceStillPending != null)
             {
                 return Ok(new
@@ -135,7 +135,7 @@ namespace BTCPayServer.Plugins.Shopify
 
             var firstInvoiceSettled =
                 matchedExistingInvoices.LastOrDefault(entity =>
-                    new[] { InvoiceStatusLegacy.Paid, InvoiceStatusLegacy.Complete, InvoiceStatusLegacy.Confirmed }
+                    new[] { InvoiceStatus.Processing, InvoiceStatus.Settled }
                         .Contains(
                             entity.GetInvoiceState().Status));
 
@@ -157,7 +157,7 @@ namespace BTCPayServer.Plugins.Shopify
             {
                 //if BTCPay was shut down before the tx managed to get registered on shopify, this will fix it on the next UI load in shopify
                 if (client != null && order?.FinancialStatus == "pending" &&
-                    firstInvoiceSettled.Status != InvoiceStatusLegacy.Paid)
+                    firstInvoiceSettled.Status != InvoiceStatus.Processing)
                 {
                     await _shopifyService.Process(client, orderId, firstInvoiceSettled.Id,
                         firstInvoiceSettled.Currency,

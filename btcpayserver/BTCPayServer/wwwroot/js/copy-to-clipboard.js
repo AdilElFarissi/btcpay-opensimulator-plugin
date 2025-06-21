@@ -1,8 +1,9 @@
 function confirmCopy(el, message) {
-    const hasIcon = !!el.innerHTML.match('icon-copy')
+    if (el.dataset.clipboardConfirming) return;
+    const hasIcon = !!el.innerHTML.match('icon-actions-copy')
     const confirmHTML = `<span class="text-success">${message}</span>`;
     if (hasIcon) {
-        el.innerHTML = el.innerHTML.replace('#copy', '#checkmark');
+        el.innerHTML = el.innerHTML.replace('#actions-copy', '#checkmark');
     } else {
         const { width, height } = el.getBoundingClientRect();
         el.dataset.clipboardInitial = el.innerHTML;
@@ -10,13 +11,13 @@ function confirmCopy(el, message) {
         el.style.minHeight = height + 'px';
         el.innerHTML = confirmHTML;
     }
-    el.dataset.clipboardConfirming = true;
+    el.dataset.clipboardConfirming = 'true';
     if (el.dataset.clipboardHandler) {
         clearTimeout(parseInt(el.dataset.clipboardHandler));
     }
     const timeoutId = setTimeout(function () {
         if (hasIcon) {
-            el.innerHTML = el.innerHTML.replace('#checkmark', '#copy');
+            el.innerHTML = el.innerHTML.replace('#checkmark', '#actions-copy');
         } else if (el.innerHTML === confirmHTML) {
             el.innerHTML = el.dataset.clipboardInitial;
         }

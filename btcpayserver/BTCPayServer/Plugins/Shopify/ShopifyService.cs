@@ -57,7 +57,7 @@ namespace BTCPayServer.Plugins.Shopify
                 var shopifyOrderId = invoice.GetInternalTags(SHOPIFY_ORDER_ID_PREFIX).FirstOrDefault();
                 if (shopifyOrderId != null)
                 {
-                    var success = invoice.Status.ToModernStatus() switch
+                    var success = invoice.Status switch
                     {
                         InvoiceStatus.Settled => true,
                         InvoiceStatus.Invalid or InvoiceStatus.Expired => false,

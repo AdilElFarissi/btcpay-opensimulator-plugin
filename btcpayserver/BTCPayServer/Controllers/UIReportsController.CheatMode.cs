@@ -1,26 +1,9 @@
 #nullable enable
 using System;
-using Dapper;
-using System.Linq;
-using System.Threading.Tasks;
-using BTCPayServer.Abstractions.Constants;
-using BTCPayServer.Client;
 using BTCPayServer.Client.Models;
-using BTCPayServer.Controllers.GreenField;
-using BTCPayServer.Data;
-using BTCPayServer.Filters;
-using BTCPayServer.Models.StoreReportsViewModels;
-using BTCPayServer.Models.StoreViewModels;
-using BTCPayServer.Services;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Internal;
-using System.Threading;
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 using NBitcoin.DataEncoders;
-using System.Net;
 
 namespace BTCPayServer.Controllers;
 
@@ -92,8 +75,10 @@ public partial class UIReportsController
             return Encoders.Base58.EncodeData(GenerateBytes(20));
         if (f.Type == "boolean")
             return GenerateBytes(1)[0] % 2 == 0;
-        if (f.Name == "PaymentType")
+        if (f.Name == "PaymentType" || f.Name == "Category")
             return TakeOne("On-Chain", "Lightning");
+        if (f.Name == "PaymentMethodId")
+            return TakeOne("BTC-CHAIN", "BTC-LN", "BTC-LNURL");
         if (f.Name == "PaymentId")
             if (row[fi -1] is "On-Chain")
                 return Encoders.Hex.EncodeData(GenerateBytes(32)) + "-" + rand.NextInt64(0, 4);
@@ -101,9 +86,9 @@ public partial class UIReportsController
                 return Encoders.Hex.EncodeData(GenerateBytes(32));
         if (f.Name == "Address")
             return Encoders.Bech32("bc1").Encode(0, GenerateBytes(20));
-        if (f.Name == "Crypto")
+        if (f.Name == "Crypto" || f.Name == "PaymentCurrency")
             return cryptoCurrency;
-        if (f.Name == "CryptoAmount")
+        if (f.Name == "CryptoAmount" || f.Name == "PaymentAmount")
             return DisplayFormatter.ToFormattedAmount(GenerateDecimal(0.1m, 5m, 8), cryptoCurrency);
         if (f.Name == "LightningAddress")
             return TakeOne("satoshi", "satosan", "satoichi") + "@bitcoin.org";
@@ -119,9 +104,9 @@ public partial class UIReportsController
             return TakeOne("AppA", "AppB");
         if (f.Name == "Quantity")
             return TakeOne(1, 2, 3, 4, 5);
-        if (f.Name == "Currency")
+        if (f.Name.EndsWith("Currency"))
             return fiatCurrency;
-        if (f.Name == "CurrencyAmount")
+        if (f.Name.EndsWith("CurrencyAmount"))
         {
             var curr = row[fi - 1]?.ToString();
             var value = curr switch

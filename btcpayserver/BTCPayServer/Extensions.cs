@@ -1,3 +1,4 @@
+
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -5,6 +6,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Net;
 using System.Net.WebSockets;
 using System.Reflection;
@@ -13,35 +15,122 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using BTCPayServer.Abstractions.Contracts;
+using BTCPayServer.Abstractions.Services;
 using BTCPayServer.BIP78.Sender;
 using BTCPayServer.Configuration;
 using BTCPayServer.Data;
 using BTCPayServer.HostedServices;
+using BTCPayServer.Hwi;
 using BTCPayServer.Lightning;
 using BTCPayServer.Models;
 using BTCPayServer.Models.StoreViewModels;
 using BTCPayServer.NTag424;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Bitcoin;
+using BTCPayServer.Payments.Lightning;
+using BTCPayServer.Payouts;
 using BTCPayServer.Security;
+using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Reporting;
 using BTCPayServer.Services.Wallets;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NBitcoin;
 using NBitcoin.Payment;
+using NBitcoin.RPC;
 using NBXplorer.DerivationStrategy;
 using NBXplorer.Models;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using InvoiceCryptoInfo = BTCPayServer.Services.Invoices.InvoiceCryptoInfo;
 
 namespace BTCPayServer
 {
     public static class Extensions
     {
+        public static string GetNiceModelName(this HwiDeviceClient device)
+        => device.Model switch
+        {
+            "trezor_1" => "Trezor Model One",
+            "trezor_t" => "Trezor Model T",
+            "trezor_r" => "Trezor Model R",
+            "coldcard" => "Coldcard",
+            "coldcard_simulator" => "Coldcard (Simulator)",
+            "trezor_safe 3" => "Trezor Safe 3",
+            "trezor_safe 5" => "Trezor Safe 5",
+            "ledger_nano_s" => "Ledger Nano S",
+            "ledger_nano_x" => "Ledger Nano X",
+            "ledger_stax" => "Ledger Stax",
+            "ledger_flex" => "Ledger Flex",
+            "keepkey" => "KeepKey",
+            "digitalbitbox_01" or "digitalbitbox" => "Digital Bitbox",
+            "digitalbitbox_01_simulator" => "Digital Bitbox (Simulator)",
+            "bitbox02_multi" => "BitBox02 Multi",
+            "bitbox02_btconly" => "BitBox02 Bitcoin Only",
+            "ledger_nano_s_plus" => "Ledger Nano S Plus",
+            "jade" => "Jade",
+            _ => device.Model
+        };
+        public static string ProtectString(this IDataProtector protector,string str)
+        {
+            return Convert.ToBase64String(protector.Protect(Encoding.UTF8.GetBytes(str)));
+        }
+        public static string UnprotectString(this IDataProtector protector, string str)
+        {
+            return Encoding.UTF8.GetString(protector.Unprotect(Convert.FromBase64String(str)));
+        }
+
+
+        /// <summary>
+        /// Outputs a serializer which will serialize default and null members.
+        /// This is useful for discovering the API.
+        /// </summary>
+        /// <param name="settings"></param>
+        /// <returns></returns>
+        public static JsonSerializer ForAPI(this JsonSerializer settings)
+        {
+            var clone = new JsonSerializer()
+            {
+                CheckAdditionalContent = settings.CheckAdditionalContent,
+                ConstructorHandling = settings.ConstructorHandling,
+                ContractResolver = settings.ContractResolver,
+                Culture = settings.Culture,
+                DateFormatHandling = settings.DateFormatHandling,
+                DateFormatString = settings.DateFormatString,
+                DateParseHandling = settings.DateParseHandling,
+                DateTimeZoneHandling = settings.DateTimeZoneHandling,
+                DefaultValueHandling = settings.DefaultValueHandling,
+                EqualityComparer = settings.EqualityComparer,
+                FloatFormatHandling = settings.FloatFormatHandling,
+                FloatParseHandling = settings.FloatParseHandling,
+                Formatting = settings.Formatting,
+                MaxDepth = settings.MaxDepth,
+                MetadataPropertyHandling = settings.MetadataPropertyHandling,
+                Context = settings.Context,
+                MissingMemberHandling = settings.MissingMemberHandling,
+                NullValueHandling = settings.NullValueHandling,
+                ObjectCreationHandling = settings.ObjectCreationHandling,
+                PreserveReferencesHandling = settings.PreserveReferencesHandling,
+                ReferenceLoopHandling = settings.ReferenceLoopHandling,
+                StringEscapeHandling = settings.StringEscapeHandling,
+                TraceWriter = settings.TraceWriter,
+                TypeNameAssemblyFormatHandling = settings.TypeNameAssemblyFormatHandling,
+                SerializationBinder = settings.SerializationBinder,
+                TypeNameHandling = settings.TypeNameHandling,
+                ReferenceResolver = settings.ReferenceResolver
+            };
+            foreach (var conv in settings.Converters)
+                clone.Converters.Add(conv);
+            clone.NullValueHandling = NullValueHandling.Include;
+            clone.DefaultValueHandling = DefaultValueHandling.Include;
+            return clone;
+        }
         public static DerivationSchemeParser GetDerivationSchemeParser(this BTCPayNetwork network)
         {
             return new DerivationSchemeParser(network);
@@ -52,18 +141,10 @@ namespace BTCPayServer
         {
             if (!electrum)
             {
-                var isOD = Regex.Match(xpub, @"\(.*?\)").Success;
+                var isOD = DerivationSchemeParser.MaybeOD(xpub);
                 try
                 {
-                    var result = derivationSchemeParser.ParseOutputDescriptor(xpub);
-                    derivationSchemeSettings.AccountOriginal = xpub.Trim();
-                    derivationSchemeSettings.AccountDerivation = result.Item1;
-                    derivationSchemeSettings.AccountKeySettings = result.Item2.Select((path, i) => new AccountKeySettings()
-                    {
-                        RootFingerprint = path?.MasterFingerprint,
-                        AccountKeyPath = path?.KeyPath,
-                        AccountKey = result.Item1.GetExtPubKeys().ElementAt(i).GetWif(derivationSchemeParser.Network)
-                    }).ToArray();
+                    derivationSchemeSettings = derivationSchemeParser.ParseOD(xpub);
                     return true;
                 }
                 catch (Exception)
@@ -165,17 +246,25 @@ namespace BTCPayServer
             return endpoint != null;
         }
 
-        public static Uri GetServerUri(this ILightningClient client)
+        [Obsolete("Use GetServerUri(this ILightningClient client, string connectionString) instead")]
+        public static Uri GetServerUri(this ILightningClient client) => GetServerUri(client, client.ToString());
+        public static Uri GetServerUri(this ILightningClient client, string connectionString)
         {
-            var kv = LightningConnectionStringHelper.ExtractValues(client.ToString(), out _);
-            
+            if (client is IExtendedLightningClient { ServerUri: { } uri })
+                return uri;
+            var kv = client.ExtractValues(connectionString);
             return !kv.TryGetValue("server", out var server) ? null : new Uri(server, UriKind.Absolute);
         }
 
-        public static string GetDisplayName(this ILightningClient client)
+        [Obsolete("Use GetDisplayName(this ILightningClient client, string connectionString) instead")]
+        public static string GetDisplayName(this ILightningClient client) => GetDisplayName(client, client.ToString());
+        public static string GetDisplayName(this ILightningClient client, string connectionString)
         {
-            LightningConnectionStringHelper.ExtractValues(client.ToString(), out var type);
-
+            if (client is IExtendedLightningClient { DisplayName: { } displayName })
+                    return displayName;
+            var kv = client.ExtractValues(connectionString);
+            if (!kv.TryGetValue("type", out var type))
+                return "???";
             var lncType = typeof(LightningConnectionType);
             var fields = lncType.GetFields(BindingFlags.Public | BindingFlags.Static);
             var field = fields.FirstOrDefault(f => f.GetValue(lncType)?.ToString() == type);
@@ -184,9 +273,96 @@ namespace BTCPayServer
             return attr?.Name ?? type;
         }
 
-        public static bool IsSafe(this ILightningClient client)
+        private static bool TryParseLegacy(string str, out Dictionary<string, string> connectionString)
         {
-            var kv = LightningConnectionStringHelper.ExtractValues(client.ToString(), out _);
+            if (str.StartsWith("/"))
+            {
+                str = "unix:" + str;
+            }
+
+            Dictionary<string, string> dictionary = new Dictionary<string, string>();
+            connectionString = null;
+            if (!Uri.TryCreate(str, UriKind.Absolute, out Uri result))
+            {
+                return false;
+            }
+
+            if (!new string[4] { "unix", "tcp", "http", "https" }.Contains(result.Scheme))
+            {
+                return false;
+            }
+
+            if (result.Scheme == "unix")
+            {
+                str = result.AbsoluteUri.Substring("unix:".Length);
+                while (str.Length >= 1 && str[0] == '/')
+                {
+                    str = str.Substring(1);
+                }
+
+                result = new Uri("unix://" + str, UriKind.Absolute);
+                dictionary.Add("type", "clightning");
+            }
+
+            if (result.Scheme == "tcp")
+            {
+                dictionary.Add("type", "clightning");
+            }
+
+            if (result.Scheme == "http" || result.Scheme == "https")
+            {
+                string[] array = result.UserInfo.Split(':');
+                if (string.IsNullOrEmpty(result.UserInfo) || array.Length != 2)
+                {
+                    return false;
+                }
+
+                dictionary.Add("type", "charge");
+                dictionary.Add("username", array[0]);
+                dictionary.Add("password", array[1]);
+                if (result.Scheme == "http")
+                {
+                    dictionary.Add("allowinsecure", "true");
+                }
+            }
+            else if (!string.IsNullOrEmpty(result.UserInfo))
+            {
+                return false;
+            }
+
+            dictionary.Add("server", new UriBuilder(result)
+            {
+                UserName = "",
+                Password = ""
+            }.Uri.ToString());
+            connectionString = dictionary;
+            return true;
+        }
+
+        static Dictionary<string, string> ExtractValues(this ILightningClient client, string connectionString)
+        {
+            ArgumentNullException.ThrowIfNull(connectionString);
+            if (TryParseLegacy(connectionString, out var legacy))
+                return legacy;
+            string[] source = connectionString.Split(new char[1] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+            var kv = new Dictionary<string, string>();
+            foreach (string item in source.Select((string p) => p.Trim()))
+            {
+                int num = item.IndexOf('=');
+                if (num == -1)
+                    continue;
+                string text = item.Substring(0, num).Trim().ToLowerInvariant();
+                string value = item.Substring(num + 1).Trim();
+                kv.TryAdd(text, value);
+            }
+            return kv;
+        }
+
+        [Obsolete("Use IsSafe(this ILightningClient client, string connectionString) instead")]
+        public static bool IsSafe(this ILightningClient client) => IsSafe(client, client.ToString());
+        public static bool IsSafe(this ILightningClient client, string connectionString)
+        {
+            var kv = client.ExtractValues(connectionString);
             if (kv.TryGetValue("cookiefilepath", out _)  ||
                 kv.TryGetValue("macaroondirectorypath", out _)  ||
                 kv.TryGetValue("macaroonfilepath", out _) )
@@ -241,6 +417,29 @@ namespace BTCPayServer
             }
         }
 
+#nullable enable
+        public static IServiceCollection AddDefaultTranslations(this IServiceCollection services, params string[] keyValues)
+        {
+            return services.AddDefaultTranslations(keyValues.Select(k => KeyValuePair.Create<string, string?>(k, string.Empty)).ToArray());
+        }
+        public static IServiceCollection AddDefaultPrettyName(this IServiceCollection services, PaymentMethodId paymentMethodId, string defaultPrettyName)
+        {
+			services.AddSingleton<PrettyNameProvider.UntranslatedPrettyName>(new PrettyNameProvider.UntranslatedPrettyName(paymentMethodId, defaultPrettyName));
+			return services.AddDefaultTranslations(KeyValuePair.Create<string, string?>(PrettyNameProvider.GetTranslationKey(paymentMethodId), defaultPrettyName));
+        }
+        public static IServiceCollection AddDefaultTranslations(this IServiceCollection services, params KeyValuePair<string, string?>[] keyValues)
+        {
+            services.AddSingleton<IDefaultTranslationProvider>(new InMemoryDefaultTranslationProvider(keyValues));
+            return services;
+        }
+#nullable restore
+        public static IServiceCollection AddUIExtension(this IServiceCollection services, string location, string partialViewName)
+        {
+#pragma warning disable CS0618 // Type or member is obsolete
+            services.AddSingleton<IUIExtension>(new UIExtension(partialViewName, location));
+#pragma warning restore CS0618 // Type or member is obsolete
+            return services;
+        }
         public static IServiceCollection AddReportProvider<T>(this IServiceCollection services)
     where T : ReportProvider
         {
@@ -255,11 +454,6 @@ namespace BTCPayServer
             services.AddSingleton<T>();
             services.AddTransient<ScheduledTask>(o => new ScheduledTask(typeof(T), every));
             return services;
-        }
-
-        public static PaymentMethodId GetpaymentMethodId(this InvoiceCryptoInfo info)
-        {
-            return new PaymentMethodId(info.CryptoCode, PaymentTypes.Parse(info.PaymentType));
         }
 
         public static async Task CloseSocket(this WebSocket webSocket)
@@ -277,12 +471,71 @@ namespace BTCPayServer
             finally { try { webSocket.Dispose(); } catch { } }
         }
 
-        public static IEnumerable<BitcoinLikePaymentData> GetAllBitcoinPaymentData(this InvoiceEntity invoice, bool accountedOnly)
+        public static async Task<GetMempoolInfoResponse> GetMempoolInfo(this RPCClient rpc, CancellationToken cancellationToken)
+        {
+            var mempoolInfo = await rpc.SendCommandAsync(new RPCRequest("getmempoolinfo", [])
+            {
+                ThrowIfRPCError = false,
+            }, cancellationToken);
+            if (mempoolInfo is null || mempoolInfo.Error is not null)
+                return null;
+            var result = new GetMempoolInfoResponse();
+            var incrementalRelayFee = mempoolInfo.Result["incrementalrelayfee"]?.Value<decimal>();
+            if (incrementalRelayFee is not null)
+            {
+                result.IncrementalRelayFeeRate = new FeeRate(Money.Coins(incrementalRelayFee.Value), 1000);
+            }
+
+            var mempoolminfee = mempoolInfo.Result["mempoolminfee"]?.Value<decimal>();
+            if (mempoolminfee is not null)
+            {
+                result.MempoolMinfeeRate = new FeeRate(Money.Coins(mempoolminfee.Value), 1000);
+            }
+            result.FullRBF = mempoolInfo.Result["fullrbf"]?.Value<bool>();
+            return result;
+        }
+
+        public static async Task<Dictionary<uint256, MempoolEntry>> FetchMempoolEntries(this RPCClient rpc, IEnumerable<uint256> txHashes, CancellationToken cancellationToken)
+        {
+            var batch = rpc.PrepareBatch();
+            var tasks = new List<(uint256 Id, Task<MempoolEntry> MempoolEntry)>();
+            var metadatas = new Dictionary<uint256, MempoolEntry>();
+            foreach (var id in txHashes)
+            {
+                tasks.Add((id, batch.GetMempoolEntryAsync(id, false, cancellationToken)));
+            }
+            if (tasks.Count == 0)
+                return metadatas;
+            try
+            {
+                await batch.SendBatchAsync(cancellationToken);
+                foreach (var t in tasks)
+                {
+                    try
+                    {
+                        var entry = await t.MempoolEntry;
+                        if (entry is null)
+                            continue;
+                        metadatas.TryAdd(t.Id, entry);
+                    }
+                    catch
+                    {
+                        break;
+                    }
+                }
+            }
+            // If it fails, that's OK, we don't care about the mempool entry information that much
+            catch
+            {
+            }
+            return metadatas;
+        }
+
+        public static IEnumerable<BitcoinLikePaymentData> GetAllBitcoinPaymentData(this InvoiceEntity invoice, BitcoinLikePaymentHandler handler, bool accountedOnly)
         {
             return invoice.GetPayments(accountedOnly)
-                .Where(p => p.GetPaymentMethodId()?.PaymentType == PaymentTypes.BTCLike)
-                .Select(p => (BitcoinLikePaymentData)p.GetCryptoPaymentData())
-                .Where(data => data != null);
+                .Select(p => p.GetDetails<BitcoinLikePaymentData>(handler))
+                .Where(p => p is not null);
         }
 
         public static async Task<Dictionary<uint256, TransactionResult>> GetTransactions(this BTCPayWallet client, uint256[] hashes, bool includeOffchain = false, CancellationToken cts = default(CancellationToken))
@@ -295,20 +548,14 @@ namespace BTCPayServer
             return transactions.Select(t => t.Result).Where(t => t != null).ToDictionary(o => o.Transaction.GetHash());
         }
 
-#nullable enable
-        public static IPayoutHandler? FindPayoutHandler(this IEnumerable<IPayoutHandler> handlers, PaymentMethodId paymentMethodId)
-        {
-            return handlers.FirstOrDefault(h => h.CanHandle(paymentMethodId));
-        }
-#nullable restore
-
         public static async Task<PSBT> UpdatePSBT(this ExplorerClientProvider explorerClientProvider, DerivationSchemeSettings derivationSchemeSettings, PSBT psbt)
         {
             var result = await explorerClientProvider.GetExplorerClient(psbt.Network.NetworkSet.CryptoCode).UpdatePSBTAsync(new UpdatePSBTRequest()
             {
                 PSBT = psbt,
                 DerivationScheme = derivationSchemeSettings.AccountDerivation,
-                AlwaysIncludeNonWitnessUTXO = true
+                AlwaysIncludeNonWitnessUTXO = true,
+                IncludeGlobalXPub = derivationSchemeSettings.IsMultiSigOnServer
             });
             if (result == null)
                 return null;
@@ -352,7 +599,83 @@ namespace BTCPayServer
             }
             return false;
         }
+#nullable enable
+        public static LNURLPayPaymentHandler GetLNURLHandler(this PaymentMethodHandlerDictionary handlers, BTCPayNetwork network)
+        {
+            return handlers.GetLNURLHandler(network.CryptoCode);
+        }
+        public static LNURLPayPaymentHandler GetLNURLHandler(this PaymentMethodHandlerDictionary handlers, string cryptoCode)
+        {
+            var pmi = PaymentTypes.LNURL.GetPaymentMethodId(cryptoCode);
+            var h = (LNURLPayPaymentHandler)handlers[pmi];
+            return h;
+        }
+        public static LightningLikePaymentHandler GetLightningHandler(this PaymentMethodHandlerDictionary handlers, BTCPayNetwork network)
+        {
+            return handlers.GetLightningHandler(network.CryptoCode);
+        }
+        public static LightningLikePaymentHandler GetLightningHandler(this PaymentMethodHandlerDictionary handlers, string cryptoCode)
+        {
+            var pmi = PaymentTypes.LN.GetPaymentMethodId(cryptoCode);
+            var h = (LightningLikePaymentHandler)handlers[pmi];
+            return h;
+        }
 
+        public static BitcoinLikePaymentHandler? TryGetBitcoinHandler(this PaymentMethodHandlerDictionary handlers, BTCPayNetwork network)
+        => handlers.TryGetBitcoinHandler(network.CryptoCode);
+        public static BitcoinLikePaymentHandler? TryGetBitcoinHandler(this PaymentMethodHandlerDictionary handlers, string cryptoCode)
+         => handlers.TryGetBitcoinHandler(PaymentTypes.CHAIN.GetPaymentMethodId(cryptoCode));
+        public static BitcoinLikePaymentHandler? TryGetBitcoinHandler(this PaymentMethodHandlerDictionary handlers, PaymentMethodId paymentMethodId)
+        {
+            if (handlers.TryGetValue(paymentMethodId, out var h) && h is BitcoinLikePaymentHandler b)
+                return b;
+            return null;
+        }
+        public static BitcoinLikePaymentHandler GetBitcoinHandler(this PaymentMethodHandlerDictionary handlers, BTCPayNetwork network)
+        => handlers.GetBitcoinHandler(network.CryptoCode);
+        public static BitcoinLikePaymentHandler GetBitcoinHandler(this PaymentMethodHandlerDictionary handlers, string cryptoCode)
+        {
+            var pmi = PaymentTypes.CHAIN.GetPaymentMethodId(cryptoCode);
+            var h = (BitcoinLikePaymentHandler)handlers[pmi];
+            return h;
+        }
+        public static BTCPayNetwork? TryGetNetwork<TId, THandler>(this HandlersDictionary<TId, THandler> handlers, TId id)
+                                                                           where THandler : IHandler<TId>
+                                                                           where TId : notnull
+        {
+            if (id is not null &&
+                handlers.TryGetValue(id, out var value) &&
+                value is IHasNetwork { Network: var n })
+            {
+                return n;
+            }
+            return null;
+        }
+        public static BTCPayNetwork GetNetwork<TId, THandler>(this HandlersDictionary<TId, THandler> handlers, TId id)
+                                                                           where THandler : IHandler<TId>
+                                                                           where TId : notnull
+        {
+            return TryGetNetwork(handlers, id) ?? throw new KeyNotFoundException($"Network for {id} is not found");
+        }
+        public static LightningPaymentMethodConfig? GetLightningConfig(this PaymentMethodHandlerDictionary handlers, Data.StoreData store, BTCPayNetwork network)
+        {
+            var config = store.GetPaymentMethodConfig(PaymentTypes.LN.GetPaymentMethodId(network.CryptoCode));
+            if (config is null)
+                return null;
+            return handlers.GetLightningHandler(network).ParsePaymentMethodConfig(config);
+        }
+        public static DerivationStrategyBase? GetDerivationStrategy(this PaymentMethodHandlerDictionary handlers, InvoiceEntity invoice, BTCPayNetworkBase network)
+        {
+            var pmi = PaymentTypes.CHAIN.GetPaymentMethodId(network.CryptoCode);
+            if (!handlers.TryGetValue(pmi, out var handler))
+                return null;
+            var prompt = invoice.GetPaymentPrompt(pmi);
+            if (prompt?.Details is null)
+                return null;
+            var details = (BitcoinPaymentPromptDetails)handler.ParsePaymentPromptDetails(prompt.Details);
+            return details.AccountDerivation;
+        }
+#nullable restore
         public static bool IsOnion(this Uri uri)
         {
             if (uri == null || !uri.IsAbsoluteUri)
@@ -488,6 +811,23 @@ namespace BTCPayServer
             return supportedChains.Contains(cryptoCode.ToUpperInvariant());
         }
 
+        class ParameterReplacer : ExpressionVisitor
+        {
+            private Dictionary<string, ParameterExpression> _Parameters;
+
+            protected override Expression VisitLambda<T>(Expression<T> node)
+            {
+                _Parameters = node.Parameters.ToDictionary(p => p.Name);
+                return base.VisitLambda(node);
+            }
+            protected override Expression VisitParameter(ParameterExpression node)
+            {
+                return _Parameters[node.Name];
+            }
+        }
+        public static TExpr ReplaceParameterRef<TExpr>(this TExpr expression) where TExpr : Expression
+        => (TExpr)new ParameterReplacer().Visit(expression);
+
         public static IActionResult RedirectToRecoverySeedBackup(this Controller controller, RecoverySeedBackupViewModel vm)
         {
             var redirectVm = new PostRedirectViewModel
@@ -507,6 +847,9 @@ namespace BTCPayServer
             return controller.View("PostRedirect", redirectVm);
         }
 
+        public static string RemoveUserInfo(this Uri uri)
+        => string.IsNullOrEmpty(uri.UserInfo) ? uri.ToString() : uri.ToString().Replace(uri.UserInfo, "***");
+
         public static DataDirectories Configure(this DataDirectories dataDirectories, IConfiguration configuration)
         {
             var networkType = DefaultConfiguration.GetNetworkType(configuration);
@@ -516,6 +859,7 @@ namespace BTCPayServer
             dataDirectories.StorageDir = Path.Combine(dataDirectories.DataDir, Storage.Services.Providers.FileSystemStorage.FileSystemFileProviderService.LocalStorageDirectoryName);
             dataDirectories.TempStorageDir = Path.Combine(dataDirectories.StorageDir, "tmp");
             dataDirectories.TempDir = Path.Combine(dataDirectories.DataDir, "tmp");
+            dataDirectories.LangsDir = Path.Combine(dataDirectories.DataDir, "Langs");
             return dataDirectories;
         }
 

@@ -3,6 +3,8 @@ using BTCPayServer.Abstractions.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Options;
+using System;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure;
 
 namespace BTCPayServer.Plugins.OpenSimulator;
 
@@ -12,7 +14,7 @@ public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<OpenSimula
     {
         DbContextOptionsBuilder<OpenSimulatorDbContext> builder = new DbContextOptionsBuilder<OpenSimulatorDbContext>();
 
-        builder.UseSqlite("Data Source=opensim.db");
+        builder.UseNpgsql("User ID=postgres;Host=127.0.0.1;Port=39372;Database=opensim");
 
         return new OpenSimulatorDbContext(builder.Options, true);
     }
@@ -24,7 +26,7 @@ public class OpenSimulatorDbContextFactory : BaseDbContextFactory<OpenSimulatorD
     {
     }
 
-    public override OpenSimulatorDbContext CreateContext()
+    public override OpenSimulatorDbContext CreateContext(Action<NpgsqlDbContextOptionsBuilder> npgsqlOptionsAction = null)
     {
         DbContextOptionsBuilder<OpenSimulatorDbContext> builder = new DbContextOptionsBuilder<OpenSimulatorDbContext>();
         ConfigureBuilder(builder);

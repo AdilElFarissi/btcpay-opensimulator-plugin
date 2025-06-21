@@ -44,7 +44,6 @@ namespace BTCPayServer
                 confBuilder.AddJsonFile("appsettings.dev.json", true, false);
 #endif
                 conf = confBuilder.Build();
-
                 var builder = new WebHostBuilder()
                     .UseKestrel()
                     .UseConfiguration(conf)
@@ -53,6 +52,9 @@ namespace BTCPayServer
                         l.AddFilter("Microsoft", LogLevel.Error);
                         if (!conf.GetOrDefault<bool>("verbose", false))
                             l.AddFilter("Events", LogLevel.Warning);
+                        // Uncomment this to see EF queries
+                        //l.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Trace);
+                        l.AddFilter("Microsoft.EntityFrameworkCore.Migrations", LogLevel.Information);
                         l.AddFilter("System.Net.Http.HttpClient", LogLevel.Critical);
                         l.AddFilter("Microsoft.AspNetCore.Antiforgery.Internal", LogLevel.Critical);
                         l.AddFilter("Fido2NetLib.DistributedCacheMetadataService", LogLevel.Error);
@@ -89,7 +91,7 @@ namespace BTCPayServer
             }
             catch (Exception e) when (PluginManager.IsExceptionByPlugin(e, out var pluginName))
             {
-                logs.Configuration.LogError(e, $"Disabling plugin {pluginName} as it crashed on startup");
+                logs.Configuration.LogError(e, $"Plugin crash during startup detected, disabling {pluginName}...");
                 var pluginDir = new DataDirectories().Configure(conf).PluginDir;
                 PluginManager.DisablePlugin(pluginDir, pluginName);
             }

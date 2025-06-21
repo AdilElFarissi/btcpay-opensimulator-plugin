@@ -6,10 +6,11 @@ namespace BTCPayServer.Models.StoreViewModels
     public class CreateStoreViewModel
     {
         public bool IsFirstStore { get; set; }
-        
+
         [Required]
         [MaxLength(50)]
         [MinLength(1)]
+        [Display(Name = "Name")]
         public string Name { get; set; }
 
         [Required]
@@ -21,5 +22,6 @@ namespace BTCPayServer.Models.StoreViewModels
         public string PreferredExchange { get; set; }
 
         public SelectList Exchanges { get; set; }
+        public bool CanEditPreferredExchange { get; set; }
     }
 }

@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 using System.Threading.Tasks;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Controllers;
@@ -8,9 +8,13 @@ using WebhookDeliveryData = BTCPayServer.Data.WebhookDeliveryData;
 
 namespace BTCPayServer.HostedServices.Webhooks;
 
-public class PayoutWebhookDeliveryRequest(PayoutEvent evt, string? webhookId, WebhookEvent webhookEvent,
-        WebhookDeliveryData? delivery, WebhookBlob? webhookBlob,
-        BTCPayNetworkJsonSerializerSettings btcPayNetworkJsonSerializerSettings)
+public class PayoutWebhookDeliveryRequest(
+    PayoutEvent evt,
+    string? webhookId,
+    WebhookEvent webhookEvent,
+    WebhookDeliveryData? delivery,
+    WebhookBlob? webhookBlob,
+    BTCPayNetworkJsonSerializerSettings btcPayNetworkJsonSerializerSettings)
     : WebhookSender.WebhookDeliveryRequest(webhookId!, webhookEvent, delivery!, webhookBlob!)
 {
     public override Task<SendEmailRequest?> Interpolate(SendEmailRequest req,
@@ -23,12 +27,11 @@ public class PayoutWebhookDeliveryRequest(PayoutEvent evt, string? webhookId, We
 
     private string Interpolate(string str)
     {
+        var blob = evt.Payout.GetBlob(btcPayNetworkJsonSerializerSettings);
         var res = str.Replace("{Payout.Id}", evt.Payout.Id)
             .Replace("{Payout.PullPaymentId}", evt.Payout.PullPaymentDataId)
-            .Replace("{Payout.Destination}", evt.Payout.Destination)
+            .Replace("{Payout.Destination}", evt.Payout.DedupId ?? blob.Destination)
             .Replace("{Payout.State}", evt.Payout.State.ToString());
-
-        var blob = evt.Payout.GetBlob(btcPayNetworkJsonSerializerSettings);
 
         res = InterpolateJsonField(res, "Payout.Metadata", blob.Metadata);
         return res;

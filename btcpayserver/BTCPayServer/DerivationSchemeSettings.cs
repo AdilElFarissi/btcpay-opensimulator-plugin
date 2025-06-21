@@ -9,13 +9,13 @@ using Newtonsoft.Json;
 
 namespace BTCPayServer
 {
-    public class DerivationSchemeSettings : ISupportedPaymentMethod
+    public class DerivationSchemeSettings
     {
         public static DerivationSchemeSettings Parse(string derivationStrategy, BTCPayNetwork network)
         {
             ArgumentNullException.ThrowIfNull(network);
             ArgumentNullException.ThrowIfNull(derivationStrategy);
-            var result = new DerivationSchemeSettings { Network = network };
+            var result = new DerivationSchemeSettings();
             var parser = network.GetDerivationSchemeParser();
             if (parser.TryParseXpub(derivationStrategy, ref result) ||
                 parser.TryParseXpub(derivationStrategy, ref result, electrum: true))
@@ -26,28 +26,13 @@ namespace BTCPayServer
             throw new FormatException($"Invalid Derivation Scheme");
         }
 
-        public static bool TryParseFromJson(string config, BTCPayNetwork network, out DerivationSchemeSettings strategy)
+        public string GetNBXWalletId(Network network)
         {
-            ArgumentNullException.ThrowIfNull(network);
-            ArgumentNullException.ThrowIfNull(config);
-            strategy = null;
-            try
-            {
-                strategy = network.NBXplorerNetwork.Serializer.ToObject<DerivationSchemeSettings>(config);
-                strategy.Network = network;
-            }
-            catch { }
-            return strategy != null;
-        }
-
-        public string GetNBXWalletId()
-        {
-            return AccountDerivation is null ? null : DBUtils.nbxv1_get_wallet_id(Network.CryptoCode, AccountDerivation.ToString());
+            return AccountDerivation is null ? null : DBUtils.nbxv1_get_wallet_id(network.NetworkSet.CryptoCode, AccountDerivation.ToString());
         }
 
         public DerivationSchemeSettings()
         {
-
         }
 
         public DerivationSchemeSettings(DerivationStrategyBase derivationStrategy, BTCPayNetwork network)
@@ -55,7 +40,6 @@ namespace BTCPayServer
             ArgumentNullException.ThrowIfNull(network);
             ArgumentNullException.ThrowIfNull(derivationStrategy);
             AccountDerivation = derivationStrategy;
-            Network = network;
             AccountKeySettings = derivationStrategy.GetExtPubKeys().Select(c => new AccountKeySettings()
             {
                 AccountKey = c.GetWif(network.NBitcoinNetwork)
@@ -63,21 +47,18 @@ namespace BTCPayServer
         }
 
 
-        BitcoinExtPubKey _SigningKey;
+        private BitcoinExtPubKey _signingKey;
         public BitcoinExtPubKey SigningKey
         {
             get
             {
-                return _SigningKey ?? AccountKeySettings?.Select(k => k.AccountKey).FirstOrDefault();
+                return _signingKey ?? AccountKeySettings?.Select(k => k.AccountKey).FirstOrDefault();
             }
             set
             {
-                _SigningKey = value;
+                _signingKey = value;
             }
         }
-
-        [JsonIgnore]
-        public BTCPayNetwork Network { get; set; }
         public string Source { get; set; }
 
         public bool IsHotWallet { get; set; }
@@ -97,50 +78,27 @@ namespace BTCPayServer
         [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
         public BitcoinExtPubKey ExplicitAccountKey { get; set; }
 
-        [JsonIgnore]
-        [Obsolete("Use GetSigningAccountKeySettings().AccountKey instead")]
-        public BitcoinExtPubKey AccountKey
-        {
-            get
-            {
-                return ExplicitAccountKey ?? new BitcoinExtPubKey(AccountDerivation.GetExtPubKeys().First(), Network.NBitcoinNetwork);
-            }
-        }
-
+#nullable enable
         public AccountKeySettings GetSigningAccountKeySettings()
         {
-            return AccountKeySettings.Single(a => a.AccountKey == SigningKey);
+            return (AccountKeySettings ?? []).Single(a => a.AccountKey == SigningKey);
         }
 
-        AccountKeySettings[] _AccountKeySettings;
-        public AccountKeySettings[] AccountKeySettings
+        public AccountKeySettings? GetSigningAccountKeySettings(IHDKey rootKey)
+        => GetSigningAccountKeySettings(rootKey.GetPublicKey().GetHDFingerPrint());
+
+        public AccountKeySettings? GetSigningAccountKeySettings(HDFingerprint rootFingerprint)
         {
-            get
-            {
-                // Legacy
-                if (_AccountKeySettings == null)
-                {
-                    if (this.Network == null)
-                        return null;
-                    _AccountKeySettings = AccountDerivation.GetExtPubKeys().Select(e => new AccountKeySettings()
-                    {
-                        AccountKey = e.GetWif(this.Network.NBitcoinNetwork),
-                    }).ToArray();
-#pragma warning disable CS0618 // Type or member is obsolete
-                    _AccountKeySettings[0].AccountKeyPath = AccountKeyPath;
-                    _AccountKeySettings[0].RootFingerprint = RootFingerprint;
-                    ExplicitAccountKey = null;
-                    AccountKeyPath = null;
-                    RootFingerprint = null;
-#pragma warning restore CS0618 // Type or member is obsolete
-                }
-                return _AccountKeySettings;
-            }
-            set
-            {
-                _AccountKeySettings = value;
-            }
+            return (AccountKeySettings ?? []).Where(a => a.RootFingerprint == rootFingerprint).FirstOrDefault();
         }
+
+
+        public AccountKeySettings? GetSigningAccountKeySettingsOrDefault()
+        {
+            return (AccountKeySettings ?? []).SingleOrDefault(a => a.AccountKey == SigningKey);
+        }
+#nullable restore
+        public AccountKeySettings[] AccountKeySettings { get; set; }
 
         public IEnumerable<NBXplorer.Models.PSBTRebaseKeyRules> GetPSBTRebaseKeyRules()
         {
@@ -159,9 +117,14 @@ namespace BTCPayServer
 
         public string Label { get; set; }
 
-        [JsonIgnore]
-        public PaymentMethodId PaymentId => new PaymentMethodId(Network.CryptoCode, PaymentTypes.BTCLike);
-
+        #region MultiSig related settings
+        public bool IsMultiSigOnServer { get; set; }
+        
+        // some hardware devices like Jade require sending full input transactions if there are multiple inputs
+        // https://github.com/Blockstream/Jade/blob/0d6ce77bf23ef2b5dc43cdae3967b4207e8cad52/main/process/sign_tx.c#L586
+        public bool DefaultIncludeNonWitnessUtxo { get; set; }
+        #endregion    
+        
         public override string ToString()
         {
             return AccountDerivation.ToString();
@@ -169,13 +132,8 @@ namespace BTCPayServer
         public string ToPrettyString()
         {
             return !string.IsNullOrEmpty(Label) ? Label :
-                   !String.IsNullOrEmpty(AccountOriginal) ? AccountOriginal :
+                   !string.IsNullOrEmpty(AccountOriginal) ? AccountOriginal :
                    ToString();
-        }
-
-        public string ToJson()
-        {
-            return Network.NBXplorerNetwork.Serializer.ToString(this);
         }
 
         public void RebaseKeyPaths(PSBT psbt)

@@ -83,9 +83,7 @@ namespace BTCPayServer.Client.Models
             public string RedirectURL { get; set; }
 
             public bool? RedirectAutomatically { get; set; }
-            public bool? RequiresRefundEmail { get; set; } = null;
             public string DefaultLanguage { get; set; }
-            public CheckoutType? CheckoutType { get; set; }
             public bool? LazyPaymentMethods { get; set; }
         }
     }
@@ -95,6 +93,8 @@ namespace BTCPayServer.Client.Models
         public string StoreId { get; set; }
         [JsonConverter(typeof(NumericStringJsonConverter))]
         public decimal Amount { get; set; }
+        [JsonConverter(typeof(NumericStringJsonConverter))]
+        public decimal PaidAmount { get; set; }
         public string CheckoutLink { get; set; }
         [JsonConverter(typeof(StringEnumConverter))]
         public InvoiceStatus Status { get; set; }

@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let config = parseConfig($config.value) || {}
     
     const specialFieldTypeOptions = ['fieldset', 'textarea', 'select', 'mirror']
-    const inputFieldTypeOptions = ['text', 'number', 'password', 'email', 'url', 'tel', 'date', 'hidden']
+    const inputFieldTypeOptions = ['text', 'number', 'password', 'email', 'url', 'tel', 'date', 'datetime-local', 'color', 'checkbox', 'hidden']
     const fieldTypeOptions = inputFieldTypeOptions.concat(specialFieldTypeOptions)
 
     const getFieldComponent = type => `field-type-${specialFieldTypeOptions.includes(type) ? type : 'input'}`
@@ -222,11 +222,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 return fields
             },
             showOffcanvas() {
-                if (window.getComputedStyle(this.$refs.editorOffcanvas).visibility === 'hidden')
+                if (this.editorOffcanvas && window.getComputedStyle(this.$refs.editorOffcanvas).visibility === 'hidden')
                     this.editorOffcanvas.show();
             },
             hideOffcanvas() {
-                this.editorOffcanvas.hide();
+                if (this.editorOffcanvas)
+                    this.editorOffcanvas.hide();
             }
         },
         mounted () {

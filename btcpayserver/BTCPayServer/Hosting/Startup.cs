@@ -32,6 +32,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -114,15 +115,18 @@ namespace BTCPayServer.Hosting
             services.AddBTCPayServer(Configuration, Logs);
             services.AddProviderStorage();
             services.AddSession();
-            services.AddSignalR();
+            services.AddSignalR().AddNewtonsoftJsonProtocol(options =>
+            {
+                NBitcoin.JsonConverters.Serializer.RegisterFrontConverters(options.PayloadSerializerSettings);
+                options.PayloadSerializerSettings.Converters.Add(new BTCPayServer.Lightning.JsonConverters.LightMoneyJsonConverter());
+            });
             services.AddFido2(options =>
                 {
                     options.ServerName = "BTCPay Server";
                 })
                 .AddCachedMetadataService(config =>
                 {
-                    //They'll be used in a "first match wins" way in the order registered
-                    config.AddStaticMetadataRepository();
+                    config.AddFidoMetadataRepository();
                 });
             var descriptor = services.Single(descriptor => descriptor.ServiceType == typeof(Fido2Configuration));
             services.Remove(descriptor);
@@ -132,7 +136,7 @@ namespace BTCPayServer.Hosting
                 return new Fido2Configuration()
                 {
                     ServerName = "BTCPay Server",
-                    Origin = $"{httpContext.HttpContext.Request.Scheme}://{httpContext.HttpContext.Request.Host}",
+                    Origins = new[] { $"{httpContext.HttpContext.Request.Scheme}://{httpContext.HttpContext.Request.Host}" }.ToHashSet(),
                     ServerDomain = httpContext.HttpContext.Request.Host.Host
                 };
             });
@@ -140,7 +144,7 @@ namespace BTCPayServer.Hosting
             services.AddSingleton<UserLoginCodeService>();
             services.AddSingleton<LnurlAuthService>();
             services.AddSingleton<LightningAddressService>();
-            services.AddMvc(o =>
+            var mvcBuilder = services.AddMvc(o =>
              {
                  o.Filters.Add(new XFrameOptionsAttribute(XFrameOptionsAttribute.XFrameOptions.Deny));
                  o.Filters.Add(new XContentTypeOptionsAttribute("nosniff"));
@@ -166,9 +170,13 @@ namespace BTCPayServer.Hosting
                 o.PageViewLocationFormats.Add("/{0}.cshtml");
             })
             .AddNewtonsoftJson()
-            .AddRazorRuntimeCompilation()
             .AddPlugins(services, Configuration, LoggerFactory, bootstrapServiceProvider)
+            .AddDataAnnotationsLocalization()
             .AddControllersAsServices();
+
+#if !RAZOR_COMPILE_ON_BUILD
+            mvcBuilder.AddRazorRuntimeCompilation();
+#endif
 
             services.AddServerSideBlazor();
 
@@ -279,6 +287,10 @@ namespace BTCPayServer.Hosting
             var rewriteOptions = new RewriteOptions();
             rewriteOptions.AddRewrite("_blazor/(negotiate|initializers|disconnect)$", "/_blazor/$1", skipRemainingRules: true);
             rewriteOptions.AddRewrite("_blazor$", "/_blazor", skipRemainingRules: true);
+
+            // A rewrite rule to support the old API
+            rewriteOptions.AddRewrite("api/v1/stores/([^/]+)/payment-methods/[Oo]n[Cc]hain/([^/]+)/(preview|generate)", "/api/v1/stores/$1/payment-methods/$2-CHAIN/wallet/$3", skipRemainingRules: true);
+            rewriteOptions.AddRewrite("api/v1/stores/([^/]+)/payment-methods/[Oo]n[Cc]hain/([^/]+)(.*)", "/api/v1/stores/$1/payment-methods/$2-CHAIN$3", skipRemainingRules: true);
             app.UseRewriter(rewriteOptions);
 
             app.UseHeadersOverride();
@@ -347,17 +359,6 @@ namespace BTCPayServer.Hosting
             // https://andrewlock.net/adding-cache-control-headers-to-static-files-in-asp-net-core/
             const int durationInSeconds = 60 * 60 * 24 * 365;
             ctx.Context.Response.Headers[HeaderNames.CacheControl] = "public,max-age=" + durationInSeconds;
-        }
-
-        private static Action<Microsoft.AspNetCore.StaticFiles.StaticFileResponseContext> NewMethod()
-        {
-            return ctx =>
-            {
-                // Cache static assets for one year, set asp-append-version="true" on references to update on change.
-                // https://andrewlock.net/adding-cache-control-headers-to-static-files-in-asp-net-core/
-                const int durationInSeconds = 60 * 60 * 24 * 365;
-                ctx.Context.Response.Headers[HeaderNames.CacheControl] = "public,max-age=" + durationInSeconds;
-            };
         }
     }
 }

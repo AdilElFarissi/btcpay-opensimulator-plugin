@@ -26,32 +26,45 @@ namespace BTCPayServer.Controllers.GreenField
     public class GreenfieldStoreRateConfigurationController : ControllerBase
     {
         private readonly RateFetcher _rateProviderFactory;
-        private readonly BTCPayNetworkProvider _btcPayNetworkProvider;
+        private readonly DefaultRulesCollection _defaultRules;
         private readonly StoreRepository _storeRepository;
 
         public GreenfieldStoreRateConfigurationController(
             RateFetcher rateProviderFactory,
-            BTCPayNetworkProvider btcPayNetworkProvider,
+			DefaultRulesCollection defaultRules,
             StoreRepository storeRepository)
         {
             _rateProviderFactory = rateProviderFactory;
-            _btcPayNetworkProvider = btcPayNetworkProvider;
+			_defaultRules = defaultRules;
             _storeRepository = storeRepository;
         }
 
         [HttpGet("")]
-        [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
+        [HttpGet("primary")]
+        [Authorize(Policy = Policies.CanViewStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
         public IActionResult GetStoreRateConfiguration()
+        => GetStoreRateConfigurationCore(false);
+
+        [HttpGet("fallback")]
+        [Authorize(Policy = Policies.CanViewStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
+        public IActionResult GetStoreFallbackRateConfiguration()
+            => GetStoreRateConfigurationCore(true);
+
+        [NonAction]
+        private IActionResult GetStoreRateConfigurationCore(bool? fallback)
         {
             var data = HttpContext.GetStoreData();
-            var blob = data.GetStoreBlob();
+            var storeBlob = data.GetStoreBlob();
+            var blob = storeBlob.GetRateSettings(fallback ?? false);
+            if (blob is null)
+                return this.CreateAPIError(404, "fallback-disabled", "The fallback rates are disabled");
 
             return Ok(new StoreRateConfiguration()
             {
-                EffectiveScript = blob.GetRateRules(_btcPayNetworkProvider, out var preferredExchange).ToString(),
-                Spread = blob.Spread * 100.0m,
+                EffectiveScript = blob.GetRateRules(_defaultRules, storeBlob.Spread, out var preferredExchange).ToString(),
+                Spread = storeBlob.Spread * 100.0m,
                 IsCustomScript = blob.RateScripting,
-                PreferredSource = preferredExchange ? blob.PreferredExchange : null
+                PreferredSource = preferredExchange ? blob.GetPreferredExchange(_defaultRules, storeBlob.DefaultCurrency) : null
             });
         }
 
@@ -63,25 +76,38 @@ namespace BTCPayServer.Controllers.GreenField
                 new RateSource() { Id = provider.Id, Name = provider.DisplayName }));
         }
 
-        [HttpPut("")]
+        [HttpPut("fallback")]
         [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
-        public async Task<IActionResult> UpdateStoreRateConfiguration(
+        public Task<IActionResult> UpdateStoreRateFallbackConfiguration(
             StoreRateConfiguration configuration)
+        => UpdateStoreRateConfigurationCore(configuration, true);
+
+        [HttpPut("")]
+        [HttpPut("primary")]
+        [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
+        public Task<IActionResult> UpdateStoreRateConfiguration(
+            StoreRateConfiguration configuration)
+            => UpdateStoreRateConfigurationCore(configuration, false);
+
+        [NonAction]
+        private async Task<IActionResult> UpdateStoreRateConfigurationCore(StoreRateConfiguration configuration, bool fallback)
         {
             var storeData = HttpContext.GetStoreData();
-            var blob = storeData.GetStoreBlob();
-            ValidateAndSanitizeConfiguration(configuration, blob);
+            var storeBlob = storeData.GetStoreBlob();
+            var blob = storeBlob.GetRateSettings(fallback);
+            if (blob is null)
+                return this.CreateAPIError(404, "fallback-disabled", "The fallback rates are disabled");
+            ValidateAndSanitizeConfiguration(configuration, storeBlob, blob);
             if (!ModelState.IsValid)
                 return this.CreateValidationError(ModelState);
 
-            PopulateBlob(configuration, blob);
+            PopulateBlob(configuration, storeBlob, blob);
 
-            storeData.SetStoreBlob(blob);
+            storeData.SetStoreBlob(storeBlob);
 
             await _storeRepository.UpdateStore(storeData);
-
-
-            return GetStoreRateConfiguration();
+            HttpContext.SetStoreData(storeData);
+            return GetStoreRateConfigurationCore(fallback);
         }
 
         [HttpPost("preview")]
@@ -90,7 +116,9 @@ namespace BTCPayServer.Controllers.GreenField
             StoreRateConfiguration configuration, [FromQuery] string[]? currencyPair)
         {
             var data = HttpContext.GetStoreData();
-            var blob = data.GetStoreBlob();
+            var storeBlob = data.GetStoreBlob();
+            // Fallback or not, the preview will be the same
+            var blob = storeBlob.GetOrCreateRateSettings(true);
             var parsedCurrencyPairs = new HashSet<CurrencyPair>();
 
             if (currencyPair?.Any() is true)
@@ -109,18 +137,18 @@ namespace BTCPayServer.Controllers.GreenField
             }
             else
             {
-                parsedCurrencyPairs = blob.DefaultCurrencyPairs.ToHashSet();
+                parsedCurrencyPairs = storeBlob.DefaultCurrencyPairs?.ToHashSet() ?? new();
             }
 
-            ValidateAndSanitizeConfiguration(configuration, blob);
+            ValidateAndSanitizeConfiguration(configuration, storeBlob, blob);
             if (!ModelState.IsValid)
                 return this.CreateValidationError(ModelState);
-            PopulateBlob(configuration, blob);
+            PopulateBlob(configuration, storeBlob, blob);
 
-            var rules = blob.GetRateRules(_btcPayNetworkProvider);
+            var rules = blob.GetRateRules(_defaultRules, storeBlob.Spread);
 
 
-            var rateTasks = _rateProviderFactory.FetchRates(parsedCurrencyPairs, rules, CancellationToken.None);
+            var rateTasks = _rateProviderFactory.FetchRates(parsedCurrencyPairs, rules, new StoreIdRateContext(data.Id), CancellationToken.None);
             await Task.WhenAll(rateTasks.Values);
             var result = new List<StoreRateResult>();
             foreach (var rateTask in rateTasks)
@@ -131,14 +159,14 @@ namespace BTCPayServer.Controllers.GreenField
                 {
                     CurrencyPair = rateTask.Key.ToString(),
                     Errors = rateTaskResult.Errors.Select(errors => errors.ToString()).ToList(),
-                    Rate = rateTaskResult.Errors.Any() ? (decimal?)null : rateTaskResult.BidAsk.Bid
+                    Rate = rateTaskResult.Errors.Any() ? null : rateTaskResult.BidAsk.Bid
                 });
             }
 
             return Ok(result);
         }
 
-        private void ValidateAndSanitizeConfiguration(StoreRateConfiguration? configuration, StoreBlob storeBlob)
+        private void ValidateAndSanitizeConfiguration(StoreRateConfiguration? configuration, StoreBlob storeBlob, StoreBlob.RateSettings rateSettings)
         {
             if (configuration is null)
             {
@@ -155,7 +183,7 @@ namespace BTCPayServer.Controllers.GreenField
             {
                 if (string.IsNullOrEmpty(configuration.EffectiveScript))
                 {
-                    configuration.EffectiveScript = storeBlob.GetDefaultRateRules(_btcPayNetworkProvider).ToString();
+                    configuration.EffectiveScript = rateSettings.GetDefaultRateRules(_defaultRules, storeBlob.Spread).ToString();
                 }
 
                 if (!RateRules.TryParse(configuration.EffectiveScript, out var r))
@@ -181,33 +209,30 @@ $"You can't set the preferredSource if you are using custom scripts");
                     ModelState.AddModelError(nameof(configuration.EffectiveScript),
                     $"You can't set the effectiveScript if you aren't using custom scripts");
                 }
-                if (string.IsNullOrEmpty(configuration.PreferredSource))
+                if (!string.IsNullOrEmpty(configuration.PreferredSource))
                 {
-                    ModelState.AddModelError(nameof(configuration.PreferredSource),
-$"The preferredSource is required if you aren't using custom scripts");
-                }
+                    configuration.PreferredSource = _rateProviderFactory
+                        .RateProviderFactory
+                        .AvailableRateProviders
+                        .FirstOrDefault(s =>
+                            (s.Id ?? "").Equals(configuration.PreferredSource,
+                                StringComparison.InvariantCultureIgnoreCase))?.Id;
 
-                configuration.PreferredSource = _rateProviderFactory
-                    .RateProviderFactory
-                    .AvailableRateProviders
-                    .FirstOrDefault(s =>
-                        s.Id.Equals(configuration.PreferredSource,
-                            StringComparison.InvariantCultureIgnoreCase))?.Id;
-
-                if (string.IsNullOrEmpty(configuration.PreferredSource))
-                {
-                    ModelState.AddModelError(nameof(configuration.PreferredSource),
-                    $"Unsupported source, please check /misc/rate-sources to see valid values ({configuration.PreferredSource})");
+                    if (string.IsNullOrEmpty(configuration.PreferredSource))
+                    {
+                        ModelState.AddModelError(nameof(configuration.PreferredSource),
+                        $"Unsupported source, please check /misc/rate-sources to see valid values ({configuration.PreferredSource})");
+                    }
                 }
             }
         }
 
-        private static void PopulateBlob(StoreRateConfiguration configuration, StoreBlob storeBlob)
+        private static void PopulateBlob(StoreRateConfiguration configuration, StoreBlob storeBlob, StoreBlob.RateSettings rateSettings)
         {
-            storeBlob.PreferredExchange = configuration.PreferredSource;
+            rateSettings.PreferredExchange = configuration.PreferredSource;
             storeBlob.Spread = configuration.Spread / 100.0m;
-            storeBlob.RateScripting = configuration.IsCustomScript;
-            storeBlob.RateScript = configuration.EffectiveScript;
+            rateSettings.RateScripting = configuration.IsCustomScript;
+            rateSettings.RateScript = configuration.EffectiveScript;
         }
     }
 }

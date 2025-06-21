@@ -111,41 +111,12 @@ app = new Vue({
             return this.srvModel.targetCurrency.toUpperCase();
         },
             paymentStats: function(){
-                var result= [];                
-            var combinedStats = {};
             var keys = Object.keys(this.srvModel.info.paymentStats);
-
+            var result = [];
             for (var i = 0; i < keys.length; i++) {
-                    if(combinedStats[keys[i]]){
-                        combinedStats[keys[i]] +=this.srvModel.info.paymentStats[keys[i]];
-                    }else{
-                        combinedStats[keys[i]] =this.srvModel.info.paymentStats[keys[i]];
-                }
-            }
-
-            keys = Object.keys(this.srvModel.info.pendingPaymentStats);
-
-            for (var i = 0; i < keys.length; i++) {
-                    if(combinedStats[keys[i]]){
-                        combinedStats[keys[i]] +=this.srvModel.info.pendingPaymentStats[keys[i]];
-                    }else{
-                        combinedStats[keys[i]] =this.srvModel.info.pendingPaymentStats[keys[i]];
-                }
-            }
-
-            keys = Object.keys(combinedStats);
-
-            for (var i = 0; i < keys.length; i++) {
-                    if(!combinedStats[keys[i]]){
-                    continue;
-                }
-                var paymentMethodId = keys[i].split("_");
-                var value = combinedStats[keys[i]].toFixed(this.srvModel.currencyDataPayments[paymentMethodId[0]].divisibility);
-                    var newItem = {key:keys[i], value: value, label: paymentMethodId[0]};
-
-                    if(paymentMethodId.length > 1 && paymentMethodId[1].endsWith("LightningLike")){
-                    newItem.lightning = true;
-                }
+                var value = this.srvModel.info.paymentStats[keys[i]].percent.toFixed(2) + '%';
+                var newItem = { key: keys[i], value: value, label: this.srvModel.info.paymentStats[keys[i]].label};
+                newItem.lightning = this.srvModel.info.paymentStats[keys[i]].isLightning;
                 result.push(newItem);
             }
 
@@ -279,8 +250,8 @@ app = new Vue({
                 duration: 10000
             });
         });
-        eventAggregator.$on("payment-received", function (amount, cryptoCode, type) {
-            var onChain = type.toLowerCase() !== "lightninglike";
+        eventAggregator.$on("payment-received", function (amount, currency, prettyPMI, pmi) {
+            var onChain = pmi.endsWith("-CHAIN");
             if (self.sound) {
                 playRandomSound();
             }
@@ -289,13 +260,13 @@ app = new Vue({
             }
             amount = parseFloat(amount).noExponents();
             if (onChain) {
-                Vue.toasted.show('New payment of ' + amount + " " + cryptoCode + " " + (onChain ? "On Chain" : "LN "), {
+                Vue.toasted.show('New payment of ' + amount + " " + currency + " " + prettyPMI, {
                     iconPack: "fontawesome",
                     icon: "plus",
                     duration: 10000
                 });
             } else {
-                Vue.toasted.show('New payment of ' + amount + " " + cryptoCode + " " + (onChain ? "On Chain" : "LN "), {
+                Vue.toasted.show('New payment of ' + amount + " " + cryptoCode + " " + prettyPMI, {
                     iconPack: "fontawesome",
                     icon: "bolt",
                     duration: 10000

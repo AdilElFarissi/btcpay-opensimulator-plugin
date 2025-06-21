@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.Metrics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Extensions;
@@ -14,21 +14,20 @@ using BTCPayServer.Client.Models;
 using BTCPayServer.Controllers;
 using BTCPayServer.Data;
 using BTCPayServer.Events;
-using BTCPayServer.Lightning;
-using BTCPayServer.Lightning.CLightning;
 using BTCPayServer.Models.AccountViewModels;
 using BTCPayServer.Models.StoreViewModels;
+using BTCPayServer.Payments;
 using BTCPayServer.Payments.Lightning;
 using BTCPayServer.Payments.PayJoin.Sender;
 using BTCPayServer.Services;
+using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Stores;
 using BTCPayServer.Services.Wallets;
-using BTCPayServer.Tests.Logging;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.CodeAnalysis.Operations;
 using Microsoft.EntityFrameworkCore;
 using NBitcoin;
+using NBitcoin.DataEncoders;
 using NBitcoin.Payment;
 using NBitpayClient;
 using NBXplorer.DerivationStrategy;
@@ -142,19 +141,19 @@ namespace BTCPayServer.Tests
         public async Task ModifyPayment(Action<GeneralSettingsViewModel> modify)
         {
             var storeController = GetController<UIStoresController>();
-            var response = storeController.GeneralSettings();
-            GeneralSettingsViewModel settings = (GeneralSettingsViewModel)((ViewResult)response).Model;
+            var response = await storeController.GeneralSettings(StoreId);
+            GeneralSettingsViewModel settings = (GeneralSettingsViewModel)((ViewResult)response).Model!;
             modify(settings);
             await storeController.GeneralSettings(settings);
         }
 
-        public async Task ModifyWalletSettings(Action<WalletSettingsViewModel> modify)
+        public async Task ModifyGeneralSettings(Action<GeneralSettingsViewModel> modify)
         {
             var storeController = GetController<UIStoresController>();
-            var response = await storeController.WalletSettings(StoreId, "BTC");
-            WalletSettingsViewModel walletSettings = (WalletSettingsViewModel)((ViewResult)response).Model;
-            modify(walletSettings);
-            storeController.UpdateWalletSettings(walletSettings).GetAwaiter().GetResult();
+            var response = await storeController.GeneralSettings(StoreId);
+            GeneralSettingsViewModel settings = (GeneralSettingsViewModel)((ViewResult)response).Model!;
+            modify(settings);
+            storeController.GeneralSettings(settings).GetAwaiter().GetResult();
         }
 
         public async Task ModifyOnchainPaymentSettings(Action<WalletSettingsViewModel> modify)
@@ -163,7 +162,7 @@ namespace BTCPayServer.Tests
             var response = await storeController.WalletSettings(StoreId, "BTC");
             WalletSettingsViewModel walletSettings = (WalletSettingsViewModel)((ViewResult)response).Model;
             modify(walletSettings);
-            storeController.UpdatePaymentSettings(walletSettings).GetAwaiter().GetResult();
+            storeController.UpdateWalletSettings(walletSettings).GetAwaiter().GetResult();
         }
 
         public T GetController<T>(bool setImplicitStore = true) where T : Controller
@@ -179,7 +178,7 @@ namespace BTCPayServer.Tests
                 await RegisterAsync();
             }
             var store = GetController<UIUserStoresController>();
-            await store.CreateStore(new CreateStoreViewModel { Name = "Test Store", PreferredExchange = "coingecko" });
+            await store.CreateStore(new CreateStoreViewModel { Name = "Test Store", PreferredExchange = "coingecko", CanEditPreferredExchange = true});
             StoreId = store.CreatedStoreId;
             parent.Stores.Add(StoreId);
         }
@@ -239,7 +238,7 @@ namespace BTCPayServer.Tests
             await account.Register(RegisterDetails);
 
             //this addresses an obscure issue where LockSubscription is unintentionally set to "true",
-            //resulting in a large number of tests failing.  
+            //resulting in a large number of tests failing.
             if (account.RegisteredUserId == null)
             {
                 var settings = parent.PayTester.GetService<SettingsRepository>();
@@ -295,7 +294,7 @@ namespace BTCPayServer.Tests
             var storeController = GetController<UIStoresController>();
 
             var connectionString = parent.GetLightningConnectionString(connectionType, isMerchant);
-            var nodeType = connectionString == LightningSupportedPaymentMethod.InternalNode ? LightningNodeType.Internal : LightningNodeType.Custom;
+            var nodeType = connectionString == LightningPaymentMethodConfig.InternalNode ? LightningNodeType.Internal : LightningNodeType.Custom;
 
             var vm = new LightningNodeViewModel { ConnectionString = connectionString, LightningNodeType = nodeType, SkipPortTest = true };
             await storeController.SetupLightningNode(storeId ?? StoreId,
@@ -373,8 +372,9 @@ namespace BTCPayServer.Tests
             var pjClient = parent.PayTester.GetService<PayjoinClient>();
             var storeRepository = parent.PayTester.GetService<StoreRepository>();
             var store = await storeRepository.FindStore(StoreId);
-            var settings = store.GetSupportedPaymentMethods(parent.NetworkProvider).OfType<DerivationSchemeSettings>()
-                .First();
+            var pmi = PaymentTypes.CHAIN.GetPaymentMethodId(psbt.Network.NetworkSet.CryptoCode);
+            var handlers = parent.PayTester.GetService<PaymentMethodHandlerDictionary>();
+            var settings = store.GetPaymentMethodConfig<DerivationSchemeSettings>(pmi, handlers);
             TestLogs.LogInformation($"Proposing {psbt.GetGlobalTransaction().GetHash()}");
             if (expectedError is null && !senderError)
             {
@@ -491,7 +491,7 @@ namespace BTCPayServer.Tests
 
         public class DummyStoreWebhookEvent : StoreWebhookEvent
         {
-            
+
         }
 
         public List<StoreWebhookEvent> WebhookEvents { get; set; } = new List<StoreWebhookEvent>();
@@ -530,7 +530,7 @@ retry:
         {
             var server = new FakeServer();
             await server.Start();
-            var client = await CreateClient(Policies.CanModifyStoreWebhooks);
+            var client = await CreateClient(Policies.CanModifyWebhooks);
             var wh = await client.CreateWebhook(StoreId, new CreateStoreWebhookRequest()
             {
                 AutomaticRedelivery = false,
@@ -576,9 +576,10 @@ retry:
         public async Task<uint256> PayOnChain(string invoiceId)
         {
             var cryptoCode = "BTC";
+            var pmi = PaymentTypes.CHAIN.GetPaymentMethodId(cryptoCode);
             var client = await CreateClient();
             var methods = await client.GetInvoicePaymentMethods(StoreId, invoiceId);
-            var method = methods.First(m => m.PaymentMethod == cryptoCode);
+            var method = methods.First(m => m.PaymentMethodId == pmi.ToString());
             var address = method.Destination;
             var tx = await client.CreateOnChainTransaction(StoreId, cryptoCode, new CreateOnChainTransactionRequest()
             {
@@ -601,11 +602,9 @@ retry:
             var cryptoCode = "BTC";
             var client = await CreateClient();
             var methods = await client.GetInvoicePaymentMethods(StoreId, invoiceId);
-            var method = methods.First(m => m.PaymentMethod == $"{cryptoCode}-LightningNetwork");
+            var method = methods.First(m => m.PaymentMethodId == $"{cryptoCode}-LN");
             var bolt11 = method.Destination;
-            TestLogs.LogInformation("PAYING");
             await parent.CustomerLightningD.Pay(bolt11);
-            TestLogs.LogInformation("PAID");
             await WaitInvoicePaid(invoiceId);
         }
 
@@ -615,7 +614,7 @@ retry:
             var network = SupportedNetwork.NBitcoinNetwork;
             var client = await CreateClient();
             var methods = await client.GetInvoicePaymentMethods(StoreId, invoiceId);
-            var method = methods.First(m => m.PaymentMethod == $"{cryptoCode}-LNURLPAY");
+            var method = methods.First(m => m.PaymentMethodId == $"{cryptoCode}-LNURL");
             var lnurL = LNURL.LNURL.Parse(method.PaymentLink, out var tag);
             var http = new HttpClient();
             var payreq = (LNURL.LNURLPayRequest)await LNURL.LNURL.FetchInformation(lnurL, tag, http);
@@ -670,20 +669,43 @@ retry:
             var dbContext = this.parent.PayTester.GetService<ApplicationDbContextFactory>().CreateContext();
             var db = (NpgsqlConnection)dbContext.Database.GetDbConnection();
             await db.OpenAsync();
-            using (var writer = db.BeginTextImport("COPY \"Invoices\" (\"Id\",\"Blob\",\"Created\",\"CustomerEmail\",\"ExceptionStatus\",\"ItemCode\",\"OrderId\",\"Status\",\"StoreDataId\",\"Archived\",\"Blob2\") FROM STDIN DELIMITER ',' CSV HEADER"))
+            bool isHeader = true;
+            using (var writer = db.BeginTextImport("COPY \"Invoices\" (\"Id\",\"Blob\",\"Created\",\"ExceptionStatus\",\"Status\",\"StoreDataId\",\"Archived\",\"Blob2\") FROM STDIN DELIMITER ',' CSV HEADER"))
             {
                 foreach (var invoice in oldInvoices)
                 {
-                    var localInvoice = invoice.Replace("3sgUCCtUBg6S8LJkrbdfAWbsJMqByFLfvSqjG6xKBWEd", storeId);
-                    await writer.WriteLineAsync(localInvoice);
+                    if (isHeader)
+                    {
+                        isHeader = false;
+                        await writer.WriteLineAsync(invoice);
+                    }
+                    else
+                    {
+                        var localInvoice = invoice.Replace("3sgUCCtUBg6S8LJkrbdfAWbsJMqByFLfvSqjG6xKBWEd", storeId);
+                        var fields = localInvoice.Split(',');
+                        var blob1 = ZipUtils.Unzip(Encoders.Hex.DecodeData(fields[1].Substring(2)));
+                        var matched = Regex.Match(blob1, "xpub[^\\\"-]*");
+                        if (matched.Success)
+                        {
+                            var xpub = (BitcoinExtPubKey)Network.Main.Parse(matched.Value);
+                            var xpubTestnet = xpub.ExtPubKey.GetWif(Network.RegTest).ToString();
+                            blob1 = blob1.Replace(xpub.ToString(), xpubTestnet);
+                            fields[1] = $"\\x{Encoders.Hex.EncodeData(ZipUtils.Zip(blob1))}";
+                            localInvoice = string.Join(',', fields);
+                        }
+                        await writer.WriteLineAsync(localInvoice);
+                    }
                 }
                 await writer.FlushAsync();
             }
-            using (var writer = db.BeginTextImport("COPY \"Payments\" (\"Id\",\"Blob\",\"InvoiceDataId\",\"Accounted\",\"Blob2\",\"Type\") FROM STDIN DELIMITER ',' CSV HEADER"))
+            isHeader = true;
+            using (var writer = db.BeginTextImport("COPY \"Payments\" (\"Id\",\"Blob\",\"InvoiceDataId\",\"Accounted\",\"Blob2\",\"PaymentMethodId\") FROM STDIN DELIMITER ',' CSV HEADER"))
             {
                 foreach (var invoice in oldPayments)
                 {
                     var localPayment = invoice.Replace("3sgUCCtUBg6S8LJkrbdfAWbsJMqByFLfvSqjG6xKBWEd", storeId);
+                    // Old data could have Type to null.
+                    localPayment += "UNKNOWN";
                     await writer.WriteLineAsync(localPayment);
                 }
                 await writer.FlushAsync();

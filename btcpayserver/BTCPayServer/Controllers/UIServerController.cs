@@ -19,7 +19,6 @@ using BTCPayServer.HostedServices;
 using BTCPayServer.Logging;
 using BTCPayServer.Models.ServerViewModels;
 using BTCPayServer.Models.StoreViewModels;
-using BTCPayServer.Payments;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Apps;
 using BTCPayServer.Services.Mails;
@@ -33,6 +32,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MimeKit;
@@ -43,7 +43,7 @@ using AuthenticationSchemes = BTCPayServer.Abstractions.Constants.Authentication
 
 namespace BTCPayServer.Controllers
 {
-    [Authorize(Policy = BTCPayServer.Client.Policies.CanModifyServerSettings,
+    [Authorize(Policy = Client.Policies.CanModifyServerSettings,
                AuthenticationSchemes = AuthenticationSchemes.Cookie)]
     public partial class UIServerController : Controller
     {
@@ -64,9 +64,12 @@ namespace BTCPayServer.Controllers
         private readonly StoredFileRepository _StoredFileRepository;
         private readonly IFileService _fileService;
         private readonly IEnumerable<IStorageProviderService> _StorageProviderServices;
-        private readonly LinkGenerator _linkGenerator;
+        private readonly CallbackGenerator _callbackGenerator;
+        private readonly UriResolver _uriResolver;
         private readonly EmailSenderFactory _emailSenderFactory;
         private readonly TransactionLinkProviders _transactionLinkProviders;
+        private readonly LocalizerService _localizer;
+        public IStringLocalizer StringLocalizer { get; }
 
         public UIServerController(
             UserManager<ApplicationUser> userManager,
@@ -87,11 +90,15 @@ namespace BTCPayServer.Controllers
             EventAggregator eventAggregator,
             IOptions<ExternalServicesOptions> externalServiceOptions,
             Logs logs,
-            LinkGenerator linkGenerator,
+            CallbackGenerator callbackGenerator,
+            UriResolver uriResolver,
             EmailSenderFactory emailSenderFactory,
             IHostApplicationLifetime applicationLifetime,
             IHtmlHelper html,
-            TransactionLinkProviders transactionLinkProviders
+            TransactionLinkProviders transactionLinkProviders,
+            LocalizerService localizer,
+            IStringLocalizer stringLocalizer,
+            BTCPayServerEnvironment environment
         )
         {
             _policiesSettings = policiesSettings;
@@ -112,11 +119,15 @@ namespace BTCPayServer.Controllers
             _eventAggregator = eventAggregator;
             _externalServiceOptions = externalServiceOptions;
             Logs = logs;
-            _linkGenerator = linkGenerator;
+            _callbackGenerator = callbackGenerator;
+            _uriResolver = uriResolver;
             _emailSenderFactory = emailSenderFactory;
             ApplicationLifetime = applicationLifetime;
             Html = html;
             _transactionLinkProviders = transactionLinkProviders;
+            _localizer = localizer;
+            Environment = environment;
+            StringLocalizer = stringLocalizer;
         }
 
         [HttpGet("server/stores")]
@@ -149,7 +160,7 @@ namespace BTCPayServer.Controllers
             };
 
             if (!vm.CanUseSSH)
-                TempData[WellKnownTempData.ErrorMessage] = "Maintenance feature requires access to SSH properly configured in BTCPay Server configuration.";
+                TempData[WellKnownTempData.ErrorMessage] = StringLocalizer["Maintenance feature requires access to SSH properly configured in BTCPay Server configuration."].Value;
             if (IPAddress.TryParse(vm.DNSDomain, out var unused))
                 vm.DNSDomain = null;
 
@@ -162,12 +173,12 @@ namespace BTCPayServer.Controllers
             vm.CanUseSSH = _sshState.CanUseSSH;
             if (command != "soft-restart" && !vm.CanUseSSH)
             {
-                TempData[WellKnownTempData.ErrorMessage] = "Maintenance feature requires access to SSH properly configured in BTCPay Server configuration.";
+                TempData[WellKnownTempData.ErrorMessage] = StringLocalizer["Maintenance feature requires access to SSH properly configured in BTCPay Server configuration."].Value;
                 return View(vm);
             }
             if (!ModelState.IsValid)
                 return View(vm);
-            
+
             if (command == "changedomain")
             {
                 if (string.IsNullOrWhiteSpace(vm.DNSDomain))
@@ -221,21 +232,21 @@ namespace BTCPayServer.Controllers
 
                 builder.Path = null;
                 builder.Query = null;
-                TempData[WellKnownTempData.SuccessMessage] = $"Domain name changing... the server will restart, please use \"{builder.Uri.AbsoluteUri}\" (this page won't reload automatically)";
+                TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["Domain name changing... the server will restart, please use \"{0}\" (this page won't reload automatically)", builder.Uri.AbsoluteUri].Value;
             }
             else if (command == "update")
             {
                 var error = await RunSSH(vm, $"btcpay-update.sh");
                 if (error != null)
                     return error;
-                TempData[WellKnownTempData.SuccessMessage] = $"The server might restart soon if an update is available...  (this page won't reload automatically)";
+                TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["The server might restart soon if an update is available... (this page won't reload automatically)"].Value;
             }
             else if (command == "clean")
             {
                 var error = await RunSSH(vm, $"btcpay-clean.sh");
                 if (error != null)
                     return error;
-                TempData[WellKnownTempData.SuccessMessage] = $"The old docker images will be cleaned soon...";
+                TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["The old docker images will be cleaned soon..."].Value;
             }
             else if (command == "restart")
             {
@@ -243,11 +254,11 @@ namespace BTCPayServer.Controllers
                 if (error != null)
                     return error;
                 Logs.PayServer.LogInformation("A hard restart has been requested");
-                TempData[WellKnownTempData.SuccessMessage] = $"BTCPay will restart momentarily.";
+                TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["BTCPay will restart momentarily."].Value;
             }
             else if (command == "soft-restart")
             {
-                TempData[WellKnownTempData.SuccessMessage] = $"BTCPay will restart momentarily.";
+                TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["BTCPay will restart momentarily."].Value;
                 Logs.PayServer.LogInformation("A soft restart has been requested");
                 _ = Task.Delay(3000).ContinueWith((t) => ApplicationLifetime.StopApplication());
             }
@@ -319,20 +330,54 @@ namespace BTCPayServer.Controllers
         public IHttpClientFactory HttpClientFactory { get; }
         public IHostApplicationLifetime ApplicationLifetime { get; }
         public IHtmlHelper Html { get; }
+        public BTCPayServerEnvironment Environment { get; }
 
         [Route("server/policies")]
         public async Task<IActionResult> Policies()
         {
+            await UpdateViewBag();
+            return View(_policiesSettings);
+        }
+
+        private async Task UpdateViewBag()
+        {
             ViewBag.UpdateUrlPresent = _Options.UpdateUrl != null;
             ViewBag.AppsList = await GetAppSelectList();
-            return View(_policiesSettings);
+            ViewBag.LangDictionaries = await GetLangDictionariesSelectList();
         }
 
         [HttpPost("server/policies")]
         public async Task<IActionResult> Policies([FromServices] BTCPayNetworkProvider btcPayNetworkProvider, PoliciesSettings settings, string command = "")
         {
-            ViewBag.UpdateUrlPresent = _Options.UpdateUrl != null;
-            ViewBag.AppsList = await GetAppSelectList();
+            await UpdateViewBag();
+
+            if (command == "ResetTemplate")
+            {
+                ModelState.Clear();
+                await _StoreRepository.SetDefaultStoreTemplate(null);
+                this.TempData.SetStatusSuccess(StringLocalizer["Store template successfully unset"]);
+                return RedirectToAction(nameof(Policies));
+            }
+
+            if (command == "SetTemplate")
+            {
+                ModelState.Clear();
+                var storeId = this.HttpContext.GetStoreData()?.Id;
+                if (storeId is null)
+                {
+                    this.TempData.SetStatusMessageModel(new()
+                    {
+                        Severity = StatusMessageModel.StatusSeverity.Error,
+                        Message = StringLocalizer["You need to select a store first"]
+                    });
+                }
+                else
+                {
+                    await _StoreRepository.SetDefaultStoreTemplate(storeId, GetUserId());
+                    this.TempData.SetStatusSuccess(StringLocalizer["Store template created from store '{0}'. New stores will inherit these settings.", HttpContext.GetStoreData().StoreName]);
+                }
+                return RedirectToAction(nameof(Policies));
+            }
 
             if (command == "add-domain")
             {
@@ -348,7 +393,7 @@ namespace BTCPayServer.Controllers
                 return View(settings);
             }
             settings.BlockExplorerLinks = settings.BlockExplorerLinks
-                                            .Where(tuple => _transactionLinkProviders.GetDefaultBlockExplorerLink(PaymentMethodId.Parse(tuple.CryptoCode)) != tuple.Link)
+                                            .Where(tuple => _transactionLinkProviders.GetDefaultBlockExplorerLink(tuple.PaymentMethodId) != tuple.Link)
                                             .Where(tuple => tuple.Link is not null)
                                             .ToList();
 
@@ -382,9 +427,12 @@ namespace BTCPayServer.Controllers
                 }
             }
 
+
             await _SettingsRepository.UpdateSetting(settings);
             _ = _transactionLinkProviders.RefreshTransactionLinkTemplates();
-            TempData[WellKnownTempData.SuccessMessage] = "Policies updated successfully";
+            if (_policiesSettings.LangDictionary != settings.LangDictionary)
+                await _localizer.Load();
+            TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["Policies updated successfully"].Value;
             return RedirectToAction(nameof(Policies));
         }
 
@@ -452,6 +500,12 @@ namespace BTCPayServer.Controllers
             return apps;
         }
 
+        private async Task<List<SelectListItem>> GetLangDictionariesSelectList()
+        {
+            var dictionaries = await this._localizer.GetDictionaries();
+            return dictionaries.Select(d => new SelectListItem(d.DictionaryName, d.DictionaryName)).OrderBy(d => d.Value).ToList();
+        }
+
         private static bool TryParseAsExternalService(TorService torService, [MaybeNullWhen(false)] out ExternalService externalService)
         {
             externalService = null;
@@ -502,7 +556,7 @@ namespace BTCPayServer.Controllers
                 return NotFound();
             if (!string.IsNullOrEmpty(cryptoCode) && !_dashBoard.IsFullySynched(cryptoCode, out _) && service.Type != ExternalServiceTypes.RPC)
             {
-                TempData[WellKnownTempData.ErrorMessage] = $"{cryptoCode} is not fully synched";
+                TempData[WellKnownTempData.ErrorMessage] = StringLocalizer["{0} is not fully synched", cryptoCode].Value;
                 return RedirectToAction(nameof(Services));
             }
             try
@@ -552,7 +606,7 @@ namespace BTCPayServer.Controllers
                     case ExternalServiceTypes.Torq:
                         if (connectionString.AccessKey == null)
                         {
-                            TempData[WellKnownTempData.ErrorMessage] = $"The access key of the service is not set";
+                            TempData[WellKnownTempData.ErrorMessage] = StringLocalizer["The access key of the service is not set"].Value;
                             return RedirectToAction(nameof(Services));
                         }
                         LightningWalletServices vm = new LightningWalletServices();
@@ -590,7 +644,7 @@ namespace BTCPayServer.Controllers
         [HttpGet("server/services/{serviceName}/{cryptoCode}/removelndseed")]
         public IActionResult RemoveLndSeed(string serviceName, string cryptoCode)
         {
-            return View("Confirm", new ConfirmModel("Delete LND seed", "This action will permanently delete your LND seed and password. You will not be able to recover them if you don't have a backup. Are you sure?", "Delete"));
+            return View("Confirm", new ConfirmModel(StringLocalizer["Delete LND seed"], StringLocalizer["This action will permanently delete your LND seed and password. You will not be able to recover them if you don't have a backup. Are you sure?"], StringLocalizer["Delete"]));
         }
 
         [HttpPost("server/services/{serviceName}/{cryptoCode}/removelndseed")]
@@ -603,24 +657,24 @@ namespace BTCPayServer.Controllers
             var model = LndSeedBackupViewModel.Parse(service.ConnectionString.CookieFilePath);
             if (!model.IsWalletUnlockPresent)
             {
-                TempData[WellKnownTempData.ErrorMessage] = $"File with wallet password and seed info not present";
+                TempData[WellKnownTempData.ErrorMessage] = StringLocalizer["File with wallet password and seed info not present"].Value;
                 return RedirectToAction(nameof(Services));
             }
 
             if (string.IsNullOrEmpty(model.Seed))
             {
-                TempData[WellKnownTempData.ErrorMessage] = $"Seed information was already removed";
+                TempData[WellKnownTempData.ErrorMessage] = StringLocalizer["Seed information was already removed"].Value;
                 return RedirectToAction(nameof(Services));
             }
 
             if (await model.RemoveSeedAndWrite(service.ConnectionString.CookieFilePath))
             {
-                TempData[WellKnownTempData.SuccessMessage] = $"Seed successfully removed";
+                TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["Seed successfully removed"].Value;
                 return RedirectToAction(nameof(Service), new { serviceName, cryptoCode });
             }
             else
             {
-                TempData[WellKnownTempData.ErrorMessage] = $"Seed removal failed";
+                TempData[WellKnownTempData.ErrorMessage] = StringLocalizer["Seed removal failed"].Value;
                 return RedirectToAction(nameof(Services));
             }
         }
@@ -671,7 +725,7 @@ namespace BTCPayServer.Controllers
                 var lnConfig = _LnConfigProvider.GetConfig(configKey);
                 if (lnConfig != null)
                 {
-                    model.QRCodeLink = Request.GetAbsoluteUri(Url.Action(nameof(GetLNDConfig), new { configKey = configKey }));
+                    model.QRCodeLink = Url.ActionAbsolute(Request, nameof(GetLNDConfig), new { configKey }).ToString();
                     model.QRCode = $"config={model.QRCodeLink}";
                 }
             }
@@ -702,7 +756,7 @@ namespace BTCPayServer.Controllers
         {
             if (!_dashBoard.IsFullySynched(cryptoCode, out _))
             {
-                TempData[WellKnownTempData.ErrorMessage] = $"{cryptoCode} is not fully synched";
+                TempData[WellKnownTempData.ErrorMessage] = StringLocalizer["{0} is not fully synched", cryptoCode].Value;
                 return RedirectToAction(nameof(Services));
             }
             var service = GetService(serviceName, cryptoCode);
@@ -797,7 +851,7 @@ namespace BTCPayServer.Controllers
                 string errorMessage = await viewModel.Settings.SendUpdateRequest(HttpClientFactory.CreateClient());
                 if (errorMessage == null)
                 {
-                    TempData[WellKnownTempData.SuccessMessage] = $"The Dynamic DNS has been successfully queried, your configuration is saved";
+                    TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["The Dynamic DNS has been successfully queried, your configuration is saved"].Value;
                     viewModel.Settings.LastUpdated = DateTimeOffset.UtcNow;
                     settings.Services.Add(viewModel.Settings);
                     await _SettingsRepository.UpdateSetting(settings);
@@ -833,7 +887,7 @@ namespace BTCPayServer.Controllers
                 viewModel.Settings.Hostname = viewModel.Settings.Hostname.Trim().ToLowerInvariant();
             if (!viewModel.Settings.Enabled)
             {
-                TempData[WellKnownTempData.SuccessMessage] = $"The Dynamic DNS service has been disabled";
+                TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["The Dynamic DNS service has been disabled"].Value;
                 viewModel.Settings.LastUpdated = null;
             }
             else
@@ -841,7 +895,7 @@ namespace BTCPayServer.Controllers
                 string errorMessage = await viewModel.Settings.SendUpdateRequest(HttpClientFactory.CreateClient());
                 if (errorMessage == null)
                 {
-                    TempData[WellKnownTempData.SuccessMessage] = $"The Dynamic DNS has been successfully queried, your configuration is saved";
+                    TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["The Dynamic DNS has been successfully queried, your configuration is saved"].Value;
                     viewModel.Settings.LastUpdated = DateTimeOffset.UtcNow;
                 }
                 else
@@ -877,7 +931,7 @@ namespace BTCPayServer.Controllers
                 return NotFound();
             settings.Services.RemoveAt(i);
             await _SettingsRepository.UpdateSetting(settings);
-            TempData[WellKnownTempData.SuccessMessage] = "Dynamic DNS service successfully removed";
+            TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["Dynamic DNS service successfully removed"].Value;
             RouteData.Values.Remove(nameof(hostname));
             return RedirectToAction(nameof(DynamicDnsServices));
         }
@@ -951,7 +1005,7 @@ namespace BTCPayServer.Controllers
                     try
                     {
                         await System.IO.File.WriteAllTextAsync(_Options.SSHSettings.AuthorizedKeysFile, newContent);
-                        TempData[WellKnownTempData.SuccessMessage] = "authorized_keys has been updated";
+                        TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["authorized_keys has been updated"].Value;
                         updated = true;
                     }
                     catch (Exception ex)
@@ -980,7 +1034,7 @@ namespace BTCPayServer.Controllers
 
                 if (exception is null)
                 {
-                    TempData[WellKnownTempData.SuccessMessage] = "authorized_keys has been updated";
+                    TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["authorized_keys has been updated"].Value;
                 }
                 else
                 {
@@ -1009,7 +1063,7 @@ namespace BTCPayServer.Controllers
             var policies = await _SettingsRepository.GetSettingAsync<PoliciesSettings>() ?? new PoliciesSettings();
             policies.DisableSSHService = true;
             await _SettingsRepository.UpdateSetting(policies);
-            TempData[WellKnownTempData.SuccessMessage] = "Changes to the SSH settings are now permanently disabled in the BTCPay Server user interface";
+            TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["Changes to the SSH settings are now permanently disabled in the BTCPay Server user interface"].Value;
             return RedirectToAction(nameof(Services));
         }
 
@@ -1018,16 +1072,15 @@ namespace BTCPayServer.Controllers
         {
             var server = await _SettingsRepository.GetSettingAsync<ServerSettings>() ?? new ServerSettings();
             var theme = await _SettingsRepository.GetSettingAsync<ThemeSettings>() ?? new ThemeSettings();
-            
+
             var vm = new BrandingViewModel
             {
                 ServerName = server.ServerName,
                 ContactUrl = server.ContactUrl,
                 CustomTheme = theme.CustomTheme,
                 CustomThemeExtension = theme.CustomThemeExtension,
-                CustomThemeCssUri = theme.CustomThemeCssUri,
-                CustomThemeFileId = theme.CustomThemeFileId,
-                LogoFileId = theme.LogoFileId
+                CustomThemeCssUrl = await _uriResolver.Resolve(Request.GetAbsoluteRootUri(), theme.CustomThemeCssUrl),
+                LogoUrl = await _uriResolver.Resolve(Request.GetAbsoluteRootUri(), theme.LogoUrl)
             };
             return View(vm);
         }
@@ -1046,15 +1099,15 @@ namespace BTCPayServer.Controllers
             if (userId is null)
                 return NotFound();
 
-            vm.LogoFileId = theme.LogoFileId;
-            vm.CustomThemeFileId = theme.CustomThemeFileId;
-            
+            vm.LogoUrl = await _uriResolver.Resolve(this.Request.GetAbsoluteRootUri(), theme.LogoUrl);
+            vm.CustomThemeCssUrl = await _uriResolver.Resolve(this.Request.GetAbsoluteRootUri(), theme.CustomThemeCssUrl);
+
             if (server.ServerName != vm.ServerName)
             {
                 server.ServerName = vm.ServerName;
                 settingsChanged = true;
             }
-            
+
             if (server.ContactUrl != vm.ContactUrl)
             {
                 server.ContactUrl = !string.IsNullOrWhiteSpace(vm.ContactUrl)
@@ -1062,7 +1115,7 @@ namespace BTCPayServer.Controllers
                     : null;
                 settingsChanged = true;
             }
-            
+
             if (settingsChanged)
             {
                 await _SettingsRepository.UpdateSetting(server);
@@ -1072,33 +1125,30 @@ namespace BTCPayServer.Controllers
             {
                 if (vm.CustomThemeFile.ContentType.Equals("text/css", StringComparison.InvariantCulture))
                 {
-                    // delete existing file
-                    if (!string.IsNullOrEmpty(theme.CustomThemeFileId))
-                    {
-                        await _fileService.RemoveFile(theme.CustomThemeFileId, userId);
-                    }
-
                     // add new file
                     try
                     {
                         var storedFile = await _fileService.AddFile(vm.CustomThemeFile, userId);
-                        vm.CustomThemeFileId = theme.CustomThemeFileId = storedFile.Id;
+                        theme.CustomThemeCssUrl = new UnresolvedUri.FileIdUri(storedFile.Id);
+                        vm.CustomThemeCssUrl = await _uriResolver.Resolve(Request.GetAbsoluteRootUri(), theme.CustomThemeCssUrl);
                         settingsChanged = true;
                     }
                     catch (Exception e)
                     {
-                        ModelState.AddModelError(nameof(vm.CustomThemeFile), $"Could not save theme file: {e.Message}");
+                        ModelState.AddModelError(nameof(vm.CustomThemeFile), StringLocalizer["Could not save CSS file: {0}", e.Message]);
                     }
                 }
                 else
                 {
-                    ModelState.AddModelError(nameof(vm.CustomThemeFile), "The uploaded theme file needs to be a CSS file");
+                    ModelState.AddModelError(nameof(vm.CustomThemeFile), StringLocalizer["The uploaded file needs to be a CSS file"]);
                 }
             }
-            else if (RemoveCustomThemeFile && !string.IsNullOrEmpty(theme.CustomThemeFileId))
+            else if (RemoveCustomThemeFile && theme.CustomThemeCssUrl is not null)
             {
-                await _fileService.RemoveFile(theme.CustomThemeFileId, userId);
-                vm.CustomThemeFileId = theme.CustomThemeFileId = null;
+                vm.CustomThemeCssUrl = null;
+                theme.CustomThemeCssUrl = null;
+                theme.CustomTheme = false;
+                theme.CustomThemeExtension = ThemeExtension.Custom;
                 settingsChanged = true;
             }
 
@@ -1106,64 +1156,50 @@ namespace BTCPayServer.Controllers
             {
                 if (vm.LogoFile.Length > 1_000_000)
                 {
-                    ModelState.AddModelError(nameof(vm.LogoFile), "The uploaded logo file should be less than 1MB");
+                    ModelState.AddModelError(nameof(vm.LogoFile), StringLocalizer["The uploaded file should be less than {0}", "1MB"]);
                 }
                 else if (!vm.LogoFile.ContentType.StartsWith("image/", StringComparison.InvariantCulture))
                 {
-                    ModelState.AddModelError(nameof(vm.LogoFile), "The uploaded logo file needs to be an image");
+                    ModelState.AddModelError(nameof(vm.LogoFile), StringLocalizer["The uploaded file needs to be an image"]);
                 }
                 else
                 {
                     var formFile = await vm.LogoFile.Bufferize();
                     if (!FileTypeDetector.IsPicture(formFile.Buffer, formFile.FileName))
                     {
-                        ModelState.AddModelError(nameof(vm.LogoFile), "The uploaded logo file needs to be an image");
+                        ModelState.AddModelError(nameof(vm.LogoFile), StringLocalizer["The uploaded file needs to be an image"]);
                     }
                     else
                     {
                         vm.LogoFile = formFile;
-                        // delete existing file
-                        if (!string.IsNullOrEmpty(theme.LogoFileId))
-                        {
-                            await _fileService.RemoveFile(theme.LogoFileId, userId);
-                        }
                         // add new file
                         try
                         {
                             var storedFile = await _fileService.AddFile(vm.LogoFile, userId);
-                            vm.LogoFileId = theme.LogoFileId = storedFile.Id;
+                            theme.LogoUrl = new UnresolvedUri.FileIdUri(storedFile.Id);
+                            vm.LogoUrl = await _uriResolver.Resolve(Request.GetAbsoluteRootUri(), theme.LogoUrl);
                             settingsChanged = true;
                         }
                         catch (Exception e)
                         {
-                            ModelState.AddModelError(nameof(vm.LogoFile), $"Could not save logo: {e.Message}");
+                            ModelState.AddModelError(nameof(vm.LogoFile), StringLocalizer["Could not save logo: {0}", e.Message]);
                         }
                     }
                 }
             }
-            else if (RemoveLogoFile && !string.IsNullOrEmpty(theme.LogoFileId))
+            else if (RemoveLogoFile && theme.LogoUrl is not null)
             {
-                await _fileService.RemoveFile(theme.LogoFileId, userId);
-                vm.LogoFileId = theme.LogoFileId = null;
+                vm.LogoUrl = null;
+                theme.LogoUrl = null;
                 settingsChanged = true;
             }
 
-            if (vm.CustomTheme && !string.IsNullOrEmpty(vm.CustomThemeCssUri) && !Uri.IsWellFormedUriString(vm.CustomThemeCssUri, UriKind.RelativeOrAbsolute))
-            {
-                ModelState.AddModelError(nameof(theme.CustomThemeCssUri), "Please provide a non-empty theme URI");
-            }
-            else if (theme.CustomThemeCssUri != vm.CustomThemeCssUri)
-            {
-                theme.CustomThemeCssUri = vm.CustomThemeCssUri;
-                settingsChanged = true;
-            }
-
-            if (theme.CustomThemeExtension != vm.CustomThemeExtension)
+            if (vm.CustomTheme && theme.CustomThemeExtension != vm.CustomThemeExtension)
             {
                 // Require a custom theme to be defined in that case
-                if (string.IsNullOrEmpty(vm.CustomThemeCssUri) && string.IsNullOrEmpty(theme.CustomThemeFileId))
+                if (string.IsNullOrEmpty(vm.CustomThemeCssUrl) && theme.CustomThemeCssUrl is null)
                 {
-                    ModelState.AddModelError(nameof(vm.CustomThemeFile), "Please provide a custom theme");
+                    ModelState.AddModelError(nameof(vm.CustomThemeCssUrl), "Please provide a custom theme");
                 }
                 else
                 {
@@ -1172,7 +1208,7 @@ namespace BTCPayServer.Controllers
                 }
             }
 
-            if (theme.CustomTheme != vm.CustomTheme)
+            if (theme.CustomTheme != vm.CustomTheme && !RemoveCustomThemeFile)
             {
                 theme.CustomTheme = vm.CustomTheme;
                 settingsChanged = true;
@@ -1181,7 +1217,8 @@ namespace BTCPayServer.Controllers
             if (settingsChanged)
             {
                 await _SettingsRepository.UpdateSetting(theme);
-                TempData[WellKnownTempData.SuccessMessage] = "Settings updated successfully";
+                TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["Settings updated successfully"].Value;
+                return RedirectToAction(nameof(Branding));
             }
 
             return View(vm);
@@ -1190,7 +1227,7 @@ namespace BTCPayServer.Controllers
         [HttpGet("server/emails")]
         public async Task<IActionResult> Emails()
         {
-            var email = await _SettingsRepository.GetSettingAsync<EmailSettings>() ?? new EmailSettings();
+            var email = await _emailSenderFactory.GetSettings() ?? new EmailSettings();
             var vm = new ServerEmailsViewModel(email)
             {
                 EnableStoresToUseServerEmailSettings = !_policiesSettings.DisableStoresToUseServerEmailSettings
@@ -1207,7 +1244,7 @@ namespace BTCPayServer.Controllers
                 {
                     if (model.PasswordSet)
                     {
-                        var settings = await _SettingsRepository.GetSettingAsync<EmailSettings>() ?? new EmailSettings();
+                        var settings = await _emailSenderFactory.GetSettings() ?? new EmailSettings();
                         model.Settings.Password = settings.Password;
                     }
                     model.Settings.Validate("Settings.", ModelState);
@@ -1223,7 +1260,7 @@ namespace BTCPayServer.Controllers
                         await client.SendAsync(message);
                         await client.DisconnectAsync(true);
                     }
-                    TempData[WellKnownTempData.SuccessMessage] = $"Email sent to {model.TestEmail}. Please verify you received it.";
+                    TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["Email sent to {0}. Please verify you received it.", model.TestEmail].Value;
                 }
                 catch (Exception ex)
                 {
@@ -1243,29 +1280,27 @@ namespace BTCPayServer.Controllers
                 var settings = await _SettingsRepository.GetSettingAsync<EmailSettings>() ?? new EmailSettings();
                 settings.Password = null;
                 await _SettingsRepository.UpdateSetting(settings);
-                TempData[WellKnownTempData.SuccessMessage] = "Email server password reset";
+                TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["Email server password reset"].Value;
                 return RedirectToAction(nameof(Emails));
             }
-            
-            // save
+
+            // save if user provided valid email; this will also clear settings if no model.Settings.From
             if (model.Settings.From is not null && !MailboxAddressValidator.IsMailboxAddress(model.Settings.From))
             {
-                ModelState.AddModelError("Settings.From", "Invalid email");
+                ModelState.AddModelError("Settings.From", StringLocalizer["Invalid email"]);
                 return View(model);
             }
-            var oldSettings = await _SettingsRepository.GetSettingAsync<EmailSettings>() ?? new EmailSettings();
-            if (new ServerEmailsViewModel(oldSettings).PasswordSet)
-            {
+            var oldSettings = await _emailSenderFactory.GetSettings() ?? new EmailSettings();
+            if (!string.IsNullOrEmpty(oldSettings.Password))
                 model.Settings.Password = oldSettings.Password;
-            }
-            
+
             await _SettingsRepository.UpdateSetting(model.Settings);
-            TempData[WellKnownTempData.SuccessMessage] = "Email settings saved";
+            TempData[WellKnownTempData.SuccessMessage] = StringLocalizer["Email settings saved"].Value;
             return RedirectToAction(nameof(Emails));
         }
 
         [Route("server/logs/{file?}")]
-        public async Task<IActionResult> LogsView(string? file = null, int offset = 0)
+        public async Task<IActionResult> LogsView(string? file = null, int offset = 0, bool download = false)
         {
             if (offset < 0)
             {
@@ -1276,16 +1311,14 @@ namespace BTCPayServer.Controllers
 
             if (string.IsNullOrEmpty(_Options.LogFile))
             {
-                TempData[WellKnownTempData.ErrorMessage] = "File Logging Option not specified. " +
-                                   "You need to set debuglog and optionally " +
-                                   "debugloglevel in the configuration or through runtime arguments";
+                TempData[WellKnownTempData.ErrorMessage] = StringLocalizer["File Logging Option not specified. You need to set debuglog and optionally debugloglevel in the configuration or through runtime arguments"].Value;
             }
             else
             {
                 var di = Directory.GetParent(_Options.LogFile);
                 if (di is null)
                 {
-                    TempData[WellKnownTempData.ErrorMessage] = "Could not load log files";
+                    TempData[WellKnownTempData.ErrorMessage] = StringLocalizer["Could not load log files"].Value;
                     return View("Logs", vm);
                 }
 
@@ -1309,13 +1342,23 @@ namespace BTCPayServer.Controllers
                     return NotFound();
                 try
                 {
-                    using var fileStream = new FileStream(
+                    var fileStream = new FileStream(
                         fi.FullName,
                         FileMode.Open,
                         FileAccess.Read,
                         FileShare.ReadWrite);
-                    using var reader = new StreamReader(fileStream);
-                    vm.Log = await reader.ReadToEndAsync();
+                    if (download)
+                    {
+                        return new FileStreamResult(fileStream, "text/plain")
+                        {
+                            FileDownloadName = file
+                        };
+                    }
+                    await using (fileStream)
+                    {
+                        using var reader = new StreamReader(fileStream);
+                        vm.Log = await reader.ReadToEndAsync();
+                    }
                 }
                 catch
                 {

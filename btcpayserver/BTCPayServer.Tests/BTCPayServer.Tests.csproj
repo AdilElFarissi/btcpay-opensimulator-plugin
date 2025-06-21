@@ -7,6 +7,15 @@
     <!--https://devblogs.microsoft.com/aspnet/testing-asp-net-core-mvc-web-apps-in-memory/-->
     <PreserveCompilationContext>true</PreserveCompilationContext>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="BTCPayServer.Tests.OutputPathAttribute">
+      <!-- _Parameter1, _Parameter2, etc. correspond to the
+        matching parameter of a constructor of that .NET attribute type -->
+      <_Parameter1>$([System.IO.Path]::Combine('$(MSBuildProjectDirectory)', '$(OutputPath)'))</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
   <!--https://devblogs.microsoft.com/aspnet/testing-asp-net-core-mvc-web-apps-in-memory/-->
   <Target Name="CopyAditionalFiles" AfterTargets="Build" Condition="'$(TargetFramework)'!=''">
     <ItemGroup>
@@ -20,19 +29,28 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
-    <PackageReference Include="Newtonsoft.Json.Schema" Version="3.0.15" />
+    <None Remove="TestData\OldInvoices.csv" />
+	<None Remove="TestData\Langs\Cypherpunk" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="TestData\OldInvoices.csv" />
+	<Content Include="TestData\Langs\Cypherpunk" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.52.0" />
+    <PackageReference Include="Newtonsoft.Json.Schema" Version="3.0.16" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="8.0.11" />
     <PackageReference Include="Selenium.Support" Version="4.1.1" />
     <PackageReference Include="Selenium.WebDriver" Version="4.22.0" />
-	<PackageReference Include="Selenium.WebDriver.ChromeDriver" Version="125.0.6422.14100" />
-	<PackageReference Include="xunit" Version="2.6.6" />
-	<PackageReference Include="xunit.runner.visualstudio" Version="2.5.6">
+    <PackageReference Include="Selenium.WebDriver.ChromeDriver" Version="133.0.6943.5300" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-  </ItemGroup>
-  <ItemGroup Condition="'$(Altcoins)' != 'true'">
-    <Compile Remove="AltcoinTests\**\*.cs"></Compile>
   </ItemGroup>
   <ItemGroup>
     <None Update=".dockerignore">
@@ -54,4 +72,7 @@
     <ProjectReference Include="..\BTCPayServer\BTCPayServer.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="obj\Debug\net8.0\" />
+  </ItemGroup>
 </Project>

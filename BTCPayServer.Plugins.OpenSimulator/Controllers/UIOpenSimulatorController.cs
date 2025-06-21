@@ -32,7 +32,7 @@ public class UIOpenSimulatorController : Controller
         return View(new OpenSimulatorPageViewModel { 
             Data = data,
             StoreID = HttpContext.GetCurrentStoreId(),
-            StoreDefaultPaymetMethod = HttpContext.GetStoreData().GetDefaultPaymentId()?.ToStringNormalized(),
+            StoreDefaultPaymetMethod = HttpContext.GetStoreData().GetDefaultPaymentId() != null ? HttpContext.GetStoreData().GetDefaultPaymentId().ToString() : "",
             StoreDefaultCurrency = HttpContext.GetStoreData().GetStoreBlob().DefaultCurrency,
             ServerIP = HttpContext.Connection.LocalIpAddress.ToString()
             });
