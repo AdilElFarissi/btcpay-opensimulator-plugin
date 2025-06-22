@@ -15,7 +15,7 @@ public class OpenSimulatorPlugin : BaseBTCPayServerPlugin
 
     public override void Execute(IServiceCollection services)
     {
-        services.AddUIExtension("OpenSimulatorHeaderNav", "header-nav");
+        services.AddUIExtension("header-nav", "OpenSimulatorHeaderNav");
         services.AddHostedService<OpenSimulatorMigrationRunner>();
         services.AddSingleton<OpenSimulatorService>();
         services.AddSingleton<OpenSimulatorDbContextFactory>();
