@@ -17,4 +17,6 @@ To display it in BTCPay, click in the left menu on "Manage Plugins" you will see
 When done, restart your BTCPay Server... You will find the "OpenSimulator" link add to the Plugins list in the left menu.
 The docu is in the repo Wiki...
 
+Note: I am not affiliated or work with/for Opensimulator , BTCPay, NSL... I just add my magic touch where i feel it is necessary for the common good.
+
 Enjoy :)
