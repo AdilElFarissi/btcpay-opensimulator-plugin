@@ -7,7 +7,7 @@
     var storeId = ScopeProvider.GetCurrentStoreId();
 }
 
-@if (storeId != null)
+@if (!string.IsNullOrEmpty(storeId))
 {
 <li class="nav-item">
     <a asp-controller="UIOpenSimulator" asp-action="Index" asp-route-storeId="@storeId" class="nav-link @ViewData.ActivePageClass(OpenSimulatorNavPages.Index)">

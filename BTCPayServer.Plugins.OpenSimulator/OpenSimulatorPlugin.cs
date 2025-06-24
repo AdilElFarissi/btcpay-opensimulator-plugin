@@ -24,6 +24,5 @@ public class OpenSimulatorPlugin : BaseBTCPayServerPlugin
             OpenSimulatorDbContextFactory factory = provider.GetRequiredService<OpenSimulatorDbContextFactory>();
             factory.ConfigureBuilder(o);
         });
-        services.AddControllersWithViews().AddRazorRuntimeCompilation();
     }
 }

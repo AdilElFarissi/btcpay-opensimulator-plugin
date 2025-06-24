@@ -1,3 +1,7 @@
+.sticky-header{
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
 #pendingAutorizations, .bg-red{
     margin-top: 0px; border-top: 1px solid rgb(70, 0, 0); background-color: rgb(20, 0, 0); color: #fff;
 }

@@ -9,7 +9,7 @@
 @inject ContentSecurityPolicies Csp
 @model BTCPayServer.Plugins.OpenSimulator.Models.OpenSimulatorPageViewModel
 @{
-    ViewData.SetActivePage(OpenSimulatorNavPages.Index, "OpenSimulator Plugin");
+    ViewData.SetActivePage(OpenSimulatorNavPages.Index, "OpenSimulator Plugin", "OpenSimulator" );
     var nonce = NBitcoin.RandomUtils.GetUInt256().ToString().Substring(0, 32);
     Csp.Add("script-src", $"'nonce-{nonce}'");  
 }
