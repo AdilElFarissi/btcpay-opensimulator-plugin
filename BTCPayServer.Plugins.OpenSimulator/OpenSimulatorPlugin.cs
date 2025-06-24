@@ -1,6 +1,5 @@
 using BTCPayServer.Abstractions.Contracts;
 using BTCPayServer.Abstractions.Models;
-using BTCPayServer.Abstractions.Services;
 using BTCPayServer.Plugins.OpenSimulator.Services;
 using Microsoft.Extensions.DependencyInjection;
 

@@ -1,7 +1,5 @@
-using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using BTCPayServer.ModelBinders;
-using BTCPayServer.Models.AppViewModels;
 using BTCPayServer.Models.StoreViewModels;
 using BTCPayServer.Validation;
 using Microsoft.AspNetCore.Mvc;

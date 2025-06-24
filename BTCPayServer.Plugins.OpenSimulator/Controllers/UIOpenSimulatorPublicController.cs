@@ -17,10 +17,6 @@ using BTCPayServer.Plugins.OpenSimulator.Services;
 using BTCPayServer.HostedServices;
 using BTCPayServer.Services.Rates;
 using System.Collections.Generic;
-using BTCPayServer.Data;
-using System.Linq;
-using BTCPayServer.Payments;
-using BTCPayServer.Payouts;
 
 namespace BTCPayServer.Plugins.OpenSimulator.Controllers
 {

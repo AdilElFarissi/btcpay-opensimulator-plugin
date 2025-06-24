@@ -6,8 +6,6 @@ using BTCPayServer.Plugins.OpenSimulator.Models;
 using BTCPayServer.Plugins.OpenSimulator.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace BTCPayServer.Plugins.OpenSimulator;
 

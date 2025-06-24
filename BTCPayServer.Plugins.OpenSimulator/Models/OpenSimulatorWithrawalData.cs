@@ -1,4 +1,3 @@
-using System;
 using BTCPayServer.Payments;
 
 namespace BTCPayServer.Plugins.OpenSimulator.Models;
