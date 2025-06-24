@@ -94,6 +94,7 @@
         var defaultPaymentMethod = "@Model.StoreDefaultPaymetMethod";
         var defaultCurrency = "@Model.StoreDefaultCurrency";
         var IP = "@Model.ServerIP";
+        
     </script>
 
 </form>
@@ -142,7 +143,7 @@
         <div class="col-md-4">
             <div class="form-group">
                 <label class="form-label" for="tjDefaultPaymentMethod">Payment Method&nbsp;&nbsp;<span class="labelWarning">(Supported Cryptos Only !)</span></label>
-                <input id="tjDefaultPaymentMethod" type="text" value="@Model.StoreDefaultPaymetMethod">
+                <input id="tjDefaultPaymentMethod" type="text">
             </div>
             <div class="form-group">
                 <label class="form-label" for="notificationEmail">Notifications Email</label>
@@ -232,7 +233,7 @@
             <div class="col-md-4">
                 <div class="form-group">
                     <label class="form-label" for="vDefaultPaymentMethod">Payment Method&nbsp;&nbsp;<span class="labelWarning">(Supported Cryptos Only !)</span></label>
-                    <input id="vDefaultPaymentMethod" type="text" value="@Model.StoreDefaultPaymetMethod">
+                    <input id="vDefaultPaymentMethod" type="text">
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="vCheckoutQueryString">Checkout Query String</label>
@@ -295,7 +296,7 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="rbDefaultPaymentMethod">Payment Method&nbsp;&nbsp;<span class="labelWarning">(Supported Cryptos Only !)</span></label>
-                    <input id="rbDefaultPaymentMethod" type="text" value="@Model.StoreDefaultPaymetMethod">
+                    <input id="rbDefaultPaymentMethod" type="text">
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="rbCheckoutQueryString">Checkout Query String</label>

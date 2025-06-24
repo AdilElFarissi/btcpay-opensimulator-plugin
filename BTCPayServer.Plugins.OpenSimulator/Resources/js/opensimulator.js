@@ -129,6 +129,9 @@ $("#scriptsNav li").on("click", function(e){
     }
 });
 
+defaultPaymentMethod = defaultPaymentMethod.split("-")[0];
+$("#tjDefaultPaymentMethod, #vDefaultPaymentMethod, #rbDefaultPaymentMethod").val(defaultPaymentMethod);
+
 function updateTipjarScript (){
     var tipjarHtml = '';
     tipjarHtml += '/* BTCPay Server Crypto Tip-jar Script for OpenSimulator Plugin v0.1.2.2.\n\n';
