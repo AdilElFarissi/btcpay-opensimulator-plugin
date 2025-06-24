@@ -10,8 +10,6 @@ Proof of Work [Video](https://www.youtube.com/watch?v=NTb8PPp0qco)
 
 <b>How to install the plugin ?</b>
 
-**Currently the plugin is available for the manual installation in the [Releases](https://github.com/AdilElFarissi/btcpay-opensimulator-plugin/releases/tag/v0.1.2.2) due to some technical problems in the BTCPay Plugins Builder. The old version (1.2.1) displayed in the BTCPay Plugins Manager is not compatible with the BTCPay v2.1.5!**
-
 Usually, the plugin is available in the BTCPay Plugins Manager.
 To display it in BTCPay, click in the left menu on "Manage Plugins" you will see the plugin in the list, click "Install" to install it.
 <img src="https://i.postimg.cc/FH78rrd8/install-plugin.jpg">
